@@ -106,6 +106,24 @@
   .split-row .val{ color: var(--text); font-weight:600; }
 
   /* ---------- Quick actions ---------- */
+  /* ---------- Aktive-Fahrt-Banner ---------- */
+  .active-trip-banner{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    background:#231A0C; border:1px solid var(--amber); border-radius: var(--radius);
+    padding: 12px 14px; margin-bottom: 16px;
+  }
+  .active-trip-banner.hidden{ display:none; }
+  .active-trip-info{ display:flex; align-items:center; gap:10px; min-width:0; }
+  .active-dot{
+    flex-shrink:0; width:10px; height:10px; border-radius:50%; background: var(--amber);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse{ 0%,100%{ opacity:1; } 50%{ opacity:.35; } }
+  @media (prefers-reduced-motion: reduce){ .active-dot{ animation:none; } }
+  .active-trip-title{ font-weight:700; font-size:14px; }
+  .active-trip-meta{ font-size:12px; color: var(--text-muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .active-trip-actions{ display:flex; align-items:center; gap:8px; flex-shrink:0; }
+
   .quickactions{ display:flex; gap:10px; margin-bottom: 16px; }
   button{ font-family: inherit; }
   .btn-primary{
@@ -114,6 +132,8 @@
     cursor:pointer;
   }
   .btn-primary:hover{ background:#f0ae4c; }
+  .btn-primary[disabled]{ opacity:.4; cursor:not-allowed; background:var(--amber); }
+  .btn-primary[disabled]:hover{ background:var(--amber); }
   .btn-primary:focus-visible{ outline:2px solid #fff; outline-offset:2px; }
   .btn-ghost{
     background: var(--panel); color: var(--text); border:1px solid var(--border);
@@ -245,13 +265,27 @@
     </div>
   </div>
 
+  <div class="active-trip-banner hidden" id="activeTripBanner">
+    <div class="active-trip-info">
+      <span class="active-dot"></span>
+      <div>
+        <div class="active-trip-title" id="activeTripTitle">Aktive Fahrt</div>
+        <div class="active-trip-meta" id="activeTripMeta"></div>
+      </div>
+    </div>
+    <div class="active-trip-actions">
+      <button class="btn-primary" id="activeTripCompleteBtn" style="padding:9px 16px; font-size:13px;">Abschließen</button>
+      <button class="icon-btn" id="activeTripDiscardBtn" aria-label="Aktive Fahrt verwerfen">✕</button>
+    </div>
+  </div>
+
   <div class="quickactions">
-    <button class="btn-primary" id="newTripBtn">+ Neue Fahrt</button>
+    <button class="btn-primary" id="newTripBtn">▶ Fahrt starten</button>
     <button class="btn-ghost" id="exportBtn">Export (Excel)</button>
   </div>
 
   <div class="form-panel hidden" id="formPanel">
-    <div class="form-title" id="formTitle">Neue Fahrt</div>
+    <div class="form-title" id="formTitle">Fahrt starten</div>
 
     <div class="field">
       <label for="f-datum">Datum</label>
@@ -283,29 +317,30 @@
         <button type="button" class="gps-btn" data-target="f-start">📍 GPS</button>
       </div>
     </div>
+    <div class="gps-status" id="gpsStatus"></div>
 
     <div class="field">
-      <label for="f-ziel">Zielort</label>
-      <div class="field-with-btn">
-        <input type="text" id="f-ziel" placeholder="z. B. Musterstraße 1, Bonn">
-        <button type="button" class="gps-btn" data-target="f-ziel">📍 GPS</button>
-      </div>
-      <div class="gps-status" id="gpsStatus"></div>
+      <label for="f-kmstart">km-Stand Start (optional)</label>
+      <input type="number" id="f-kmstart" inputmode="numeric" placeholder="12345">
     </div>
 
-    <div class="field-row">
+    <div id="zielFieldGroup">
       <div class="field">
-        <label for="f-kmstart">km-Stand Start</label>
-        <input type="number" id="f-kmstart" inputmode="numeric" placeholder="12345">
+        <label for="f-ziel">Zielort</label>
+        <div class="field-with-btn">
+          <input type="text" id="f-ziel" placeholder="z. B. Musterstraße 1, Bonn">
+          <button type="button" class="gps-btn" data-target="f-ziel">📍 GPS</button>
+        </div>
       </div>
+
       <div class="field">
-        <label for="f-kmende">km-Stand Ende</label>
+        <label for="f-kmende">km-Stand Ende (optional)</label>
         <input type="number" id="f-kmende" inputmode="numeric" placeholder="12400">
       </div>
+      <div class="km-diff">Effektive Strecke (aus km-Stand): <span class="val" id="kmDiffPreview">–</span> km</div>
+      <div class="km-diff" style="margin-top:-8px;">Theoretische Strecke wird zusätzlich automatisch per GPS-Route aus Start-/Zielort berechnet.</div>
+      <div class="gps-status" id="routeStatus"></div>
     </div>
-    <div class="km-diff">Gefahrene Strecke: <span class="val" id="kmDiffPreview">–</span> km</div>
-    <div class="km-diff" style="margin-top:-8px;">Beide Felder leer lassen → Strecke wird aus Start-/Zielort automatisch geschätzt.</div>
-    <div class="gps-status" id="routeStatus"></div>
 
     <div class="field">
       <label for="f-notiz">Notiz (optional)</label>
@@ -314,7 +349,7 @@
 
     <div class="form-actions">
       <button class="btn-cancel" id="cancelBtn">Abbrechen</button>
-      <button class="btn-primary" id="saveBtn">Fahrt speichern</button>
+      <button class="btn-primary" id="saveBtn">Fahrt starten</button>
     </div>
   </div>
 
@@ -426,10 +461,35 @@
   // Nutzt das normale Browser-localStorage: bleibt dauerhaft auf DIESEM
   // Gerät/Browser gespeichert (unabhängig von Claude.ai), aber wird nicht
   // automatisch zwischen Geräten synchronisiert.
+  // Wandelt alte Trip-Datensätze (vor der Aktiv-Fahrt-Funktion) in das neue
+  // Format um: status + getrennte theoretische/effektive Distanz.
+  function normalizeTrip(t){
+    if(t.status === undefined){
+      t.status = 'abgeschlossen'; // Alt-Einträge waren immer schon fertig
+    }
+    if(t.distanzEffektiv === undefined && t.distanzTheoretisch === undefined){
+      if(typeof t.distanzKm === 'number' && !isNaN(t.distanzKm)){
+        if(t.geschaetzt){
+          t.distanzTheoretisch = t.distanzKm;
+          t.distanzEffektiv = null;
+        } else {
+          t.distanzEffektiv = t.distanzKm;
+          t.distanzTheoretisch = null;
+        }
+      } else {
+        t.distanzEffektiv = null;
+        t.distanzTheoretisch = null;
+      }
+    }
+    if(t.distanzEffektiv === undefined) t.distanzEffektiv = null;
+    if(t.distanzTheoretisch === undefined) t.distanzTheoretisch = null;
+    return t;
+  }
+
   async function loadTrips(){
     try{
       const raw = localStorage.getItem(STORAGE_KEY);
-      trips = raw ? JSON.parse(raw) : [];
+      trips = raw ? JSON.parse(raw).map(normalizeTrip) : [];
     }catch(e){
       console.error('Laden fehlgeschlagen', e);
       trips = [];
@@ -457,15 +517,19 @@
 
   function tripsForCurrentMonth(){
     const mk = monthKey(viewDate);
-    return trips.filter(t => t.datum && t.datum.startsWith(mk));
+    return trips.filter(t => t.status === 'abgeschlossen' && t.datum && t.datum.startsWith(mk));
   }
 
-  // Liefert die gefahrenen km eines Eintrags: aus km-Ständen, sonst aus der
-  // gespeicherten (ggf. geschätzten) Distanz. Deckt auch alte Einträge ab,
-  // die noch kein distanzKm-Feld hatten.
+  function activeTrip(){
+    return trips.find(t => t.status === 'aktiv') || null;
+  }
+
+  // Abrechnungsrelevante km: effektiv (Kilometerstand) hat Vorrang,
+  // sonst theoretisch (GPS-Route), sonst 0.
   function tripDistance(t){
-    if(typeof t.distanzKm === 'number' && !isNaN(t.distanzKm)) return t.distanzKm;
-    return Math.max(0, (t.kmEnde - t.kmStart) || 0);
+    if(typeof t.distanzEffektiv === 'number' && !isNaN(t.distanzEffektiv)) return t.distanzEffektiv;
+    if(typeof t.distanzTheoretisch === 'number' && !isNaN(t.distanzTheoretisch)) return t.distanzTheoretisch;
+    return 0;
   }
 
   function render(){
@@ -491,6 +555,31 @@
       emptyStateEl.classList.add('hidden');
       monthTrips.forEach(t => tripListEl.appendChild(renderTripRow(t)));
     }
+
+    renderActiveBanner();
+  }
+
+  function renderActiveBanner(){
+    const active = activeTrip();
+    const banner = $('activeTripBanner');
+    const newTripBtn = $('newTripBtn');
+
+    if(!active){
+      banner.classList.add('hidden');
+      newTripBtn.disabled = false;
+      return;
+    }
+
+    banner.classList.remove('hidden');
+    newTripBtn.disabled = true;
+
+    $('activeTripTitle').textContent = `🚗 Unterwegs: ${active.start}`;
+    let zeitText = '';
+    if(active.startZeit){
+      const t = new Date(active.startZeit);
+      zeitText = ` · seit ${t.toLocaleTimeString('de-DE', { hour:'2-digit', minute:'2-digit' })}`;
+    }
+    $('activeTripMeta').textContent = `${fmtDateShort(active.datum)}${zeitText}`;
   }
 
   function renderOdometer(totalKm){
@@ -507,21 +596,33 @@
 
   function renderTripRow(t){
     const dist = tripDistance(t);
+    const hatEffektiv = typeof t.distanzEffektiv === 'number' && !isNaN(t.distanzEffektiv);
+    const hatTheoretisch = typeof t.distanzTheoretisch === 'number' && !isNaN(t.distanzTheoretisch);
     const row = document.createElement('div');
     row.className = 'trip-row';
     const dotClass = t.kategorie === 'privat' ? 'dot-teal' : 'dot-amber';
-    const geschaetztTag = t.geschaetzt ? ' · geschätzt' : '';
     const fahrzeugTag = t.fahrzeug ? ` · 🚗 ${escapeHtml(t.fahrzeug)}` : '';
+
+    // Kleine Zusatzangabe zur jeweils NICHT für die Abrechnung genutzten Distanz
+    let nebenwert = '';
+    if(hatEffektiv && hatTheoretisch){
+      nebenwert = ` · theoret. ≈${t.distanzTheoretisch.toFixed(1)} km`;
+    } else if(!hatEffektiv && hatTheoretisch){
+      nebenwert = ' · geschätzt';
+    } else if(hatEffektiv && !hatTheoretisch){
+      nebenwert = '';
+    }
+
     row.innerHTML = `
       <div class="trip-main">
         <div class="trip-route">${escapeHtml(t.start)} → ${escapeHtml(t.ziel)}</div>
         <div class="trip-meta">
           <span class="dot ${dotClass}"></span>
-          ${fmtDateShort(t.datum)} · ${escapeHtml(t.zweck || (t.kategorie === 'privat' ? 'Privat' : 'Dienstlich'))}${geschaetztTag}${fahrzeugTag}
+          ${fmtDateShort(t.datum)} · ${escapeHtml(t.zweck || (t.kategorie === 'privat' ? 'Privat' : 'Dienstlich'))}${nebenwert}${fahrzeugTag}
         </div>
       </div>
       <div class="trip-km">
-        <span class="n">${t.geschaetzt ? '≈' : ''}${dist.toFixed(t.geschaetzt ? 1 : 0)}</span>
+        <span class="n">${hatEffektiv ? '' : '≈'}${dist.toFixed(hatEffektiv ? 0 : 1)}</span>
         <span class="u">km</span>
       </div>
       <div class="row-actions">
@@ -539,14 +640,24 @@
   }
 
   // ---------- form ----------
+  // mode: 'start' (neue aktive Fahrt beginnen), 'complete' (aktive Fahrt
+  // abschließen) oder 'edit' (bereits abgeschlossene Fahrt bearbeiten)
+  let currentFormMode = 'start';
+
   function openForm(trip){
     closeCarsPanel();
+    const mode = !trip ? 'start' : (trip.status === 'aktiv' ? 'complete' : 'edit');
+    currentFormMode = mode;
     editingId = trip ? trip.id : null;
-    formTitle.textContent = trip ? 'Fahrt bearbeiten' : 'Neue Fahrt';
+
+    const titles = { start: 'Fahrt starten', complete: 'Fahrt abschließen', edit: 'Fahrt bearbeiten' };
+    formTitle.textContent = titles[mode];
+    $('saveBtn').textContent = titles[mode];
+
     $('f-datum').value = trip ? trip.datum : new Date().toISOString().slice(0,10);
     $('f-zweck').value = trip ? (trip.zweck || '') : '';
     $('f-start').value = trip ? trip.start : '';
-    $('f-ziel').value = trip ? trip.ziel : '';
+    $('f-ziel').value = (trip && trip.ziel) ? trip.ziel : '';
     $('f-kmstart').value = (trip && trip.kmStart !== null && trip.kmStart !== undefined) ? trip.kmStart : '';
     $('f-kmende').value = (trip && trip.kmEnde !== null && trip.kmEnde !== undefined) ? trip.kmEnde : '';
     $('f-notiz').value = trip ? (trip.notiz || '') : '';
@@ -556,7 +667,10 @@
     formStartCoords = (trip && typeof trip.startLat === 'number') ? { lat: trip.startLat, lon: trip.startLon } : null;
     formZielCoords = (trip && typeof trip.zielLat === 'number') ? { lat: trip.zielLat, lon: trip.zielLon } : null;
     lastGeocodedStart = trip ? trip.start : null;
-    lastGeocodedZiel = trip ? trip.ziel : null;
+    lastGeocodedZiel = (trip && trip.ziel) ? trip.ziel : null;
+
+    // Zielort/km-Ende nur zeigen, wenn eine Fahrt abgeschlossen oder bearbeitet wird
+    $('zielFieldGroup').style.display = (mode === 'start') ? 'none' : '';
 
     gpsStatus.textContent = '';
     gpsStatus.classList.remove('error');
@@ -721,64 +835,115 @@
   async function saveTrip(){
     const datum = $('f-datum').value;
     const start = $('f-start').value.trim();
-    const ziel = $('f-ziel').value.trim();
-    const kmStartRaw = $('f-kmstart').value.trim();
-    const kmEndeRaw = $('f-kmende').value.trim();
 
-    if(!datum || !start || !ziel){
-      alert('Bitte Datum, Start und Ziel ausfüllen.');
+    if(!datum || !start){
+      alert('Bitte Datum und Startort ausfüllen.');
       return;
     }
 
-    const hasKmStart = kmStartRaw !== '';
+    // Startort-Koordinaten sicherstellen (für spätere Routenberechnung beim Abschließen)
+    if(!formStartCoords){
+      formStartCoords = await geocodeField('f-start', gpsStatus);
+    }
+
+    const kmStartRaw = $('f-kmstart').value.trim();
+    let kmStart = null;
+    if(kmStartRaw !== ''){
+      kmStart = parseFloat(kmStartRaw);
+      if(isNaN(kmStart)){
+        alert('Bitte einen gültigen km-Stand Start eingeben.');
+        return;
+      }
+    }
+
+    // ---------- Modus "start": nur Startdaten speichern, Fahrt bleibt aktiv ----------
+    if(currentFormMode === 'start'){
+      const tripData = {
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2,7),
+        status: 'aktiv',
+        startZeit: new Date().toISOString(),
+        datum, start, ziel: null,
+        kmStart, kmEnde: null,
+        distanzEffektiv: null, distanzTheoretisch: null,
+        startLat: formStartCoords ? formStartCoords.lat : null,
+        startLon: formStartCoords ? formStartCoords.lon : null,
+        zielLat: null, zielLon: null,
+        zweck: $('f-zweck').value.trim(),
+        notiz: $('f-notiz').value.trim(),
+        kategorie: currentCategory,
+        fahrzeug: currentFahrzeug
+      };
+      trips.push(tripData);
+      await persist();
+      closeForm();
+      viewDate = new Date(datum + 'T00:00:00');
+      render();
+      return;
+    }
+
+    // ---------- Modus "complete" / "edit": Zielort + Distanzen berechnen ----------
+    const ziel = $('f-ziel').value.trim();
+    if(!ziel){
+      alert('Bitte einen Zielort eintragen, um die Fahrt abzuschließen.');
+      return;
+    }
+
+    const kmEndeRaw = $('f-kmende').value.trim();
+    const hasKmStart = kmStart !== null;
     const hasKmEnde = kmEndeRaw !== '';
 
-    let kmStart = null, kmEnde = null, distanzKm = null, geschaetzt = false;
+    if(hasKmStart !== hasKmEnde){
+      alert('Bitte entweder beide Kilometerstände (Start und Ende) ausfüllen oder beide leer lassen.');
+      return;
+    }
 
+    let distanzEffektiv = null;
     if(hasKmStart && hasKmEnde){
-      // Fall 1: km-Stände wurden eingetragen -> normale Berechnung
-      kmStart = parseFloat(kmStartRaw);
-      kmEnde = parseFloat(kmEndeRaw);
-      if(isNaN(kmStart) || isNaN(kmEnde)){
-        alert('Bitte gültige Kilometerstände eingeben.');
+      const kmEnde = parseFloat(kmEndeRaw);
+      if(isNaN(kmEnde)){
+        alert('Bitte einen gültigen km-Stand Ende eingeben.');
         return;
       }
       if(kmEnde < kmStart){
         alert('Der End-Kilometerstand darf nicht kleiner als der Start-Kilometerstand sein.');
         return;
       }
-      distanzKm = kmEnde - kmStart;
-    } else if(hasKmStart || hasKmEnde){
-      alert('Bitte entweder beide Kilometerstände ausfüllen oder beide leer lassen (dann wird die Strecke automatisch geschätzt).');
-      return;
-    } else {
-      // Fall 2: keine km-Stände -> Strecke aus Start-/Zielort automatisch schätzen
-      if(!formStartCoords){
-        formStartCoords = await geocodeField('f-start', gpsStatus);
-      }
-      if(!formZielCoords){
-        formZielCoords = await geocodeField('f-ziel', gpsStatus);
-      }
-      if(!formStartCoords || !formZielCoords){
-        alert('Start- oder Zielort konnten nicht automatisch erkannt werden. Bitte eine genauere Adresse verwenden oder die Kilometerstände manuell eintragen.');
-        return;
-      }
+      distanzEffektiv = kmEnde - kmStart;
+      $('f-kmende').value = kmEnde;
+    }
+    const kmEnde = hasKmEnde ? parseFloat(kmEndeRaw) : null;
+
+    // Theoretische Strecke wird IMMER versucht zu berechnen (unabhängig von km-Ständen)
+    if(!formZielCoords){
+      formZielCoords = await geocodeField('f-ziel', gpsStatus);
+    }
+    let distanzTheoretisch = null;
+    if(formStartCoords && formZielCoords){
       routeStatus.classList.remove('error');
-      routeStatus.textContent = 'Strecke wird berechnet …';
+      routeStatus.textContent = 'Theoretische Strecke wird berechnet …';
       try{
-        distanzKm = await routeDistanceKm(formStartCoords, formZielCoords);
-        geschaetzt = true;
-        routeStatus.textContent = `Strecke automatisch berechnet: ≈ ${distanzKm} km`;
+        distanzTheoretisch = await routeDistanceKm(formStartCoords, formZielCoords);
+        routeStatus.textContent = `Theoretische Strecke: ≈ ${distanzTheoretisch} km`;
       }catch(e){
-        routeStatus.textContent = 'Strecke konnte nicht automatisch berechnet werden. Bitte Kilometerstände manuell eintragen.';
-        routeStatus.classList.add('error');
-        return;
+        routeStatus.textContent = 'Theoretische Strecke konnte nicht berechnet werden.';
       }
+    } else {
+      routeStatus.textContent = 'Theoretische Strecke: Start-/Zielort nicht eindeutig erkannt.';
+    }
+
+    if(distanzEffektiv === null && distanzTheoretisch === null){
+      alert('Es konnte weder eine effektive (km-Stand) noch eine theoretische (GPS-Route) Strecke ermittelt werden. Bitte km-Stände eintragen oder eine genauere Adresse verwenden.');
+      return;
     }
 
     const tripData = {
       id: editingId || (Date.now().toString(36) + Math.random().toString(36).slice(2,7)),
-      datum, start, ziel, kmStart, kmEnde, distanzKm, geschaetzt,
+      status: 'abgeschlossen',
+      startZeit: (currentFormMode === 'complete' && editingId)
+        ? (trips.find(t => t.id === editingId)?.startZeit || null)
+        : null,
+      datum, start, ziel, kmStart, kmEnde,
+      distanzEffektiv, distanzTheoretisch,
       startLat: formStartCoords ? formStartCoords.lat : null,
       startLon: formStartCoords ? formStartCoords.lon : null,
       zielLat: formZielCoords ? formZielCoords.lat : null,
@@ -806,6 +971,15 @@
   async function deleteTrip(id){
     if(!confirm('Diese Fahrt wirklich löschen?')) return;
     trips = trips.filter(t => t.id !== id);
+    await persist();
+    render();
+  }
+
+  async function discardActiveTrip(){
+    const active = activeTrip();
+    if(!active) return;
+    if(!confirm('Aktive Fahrt wirklich verwerfen? Die Startdaten gehen dabei verloren.')) return;
+    trips = trips.filter(t => t.id !== active.id);
     await persist();
     render();
   }
@@ -923,8 +1097,9 @@
 
   // ---------- Excel export ----------
   function exportXlsx(){
-    if(trips.length === 0){
-      alert('Es gibt noch keine Fahrten zum Exportieren.');
+    const abgeschlossen = trips.filter(t => t.status === 'abgeschlossen');
+    if(abgeschlossen.length === 0){
+      alert('Es gibt noch keine abgeschlossenen Fahrten zum Exportieren.');
       return;
     }
     if(typeof XLSX === 'undefined'){
@@ -932,8 +1107,13 @@
       return;
     }
 
-    const header = ['Datum','Grund der Fahrt','Startort','Zielort','Startkilometerstand','Endkilometerstand','Gesamt gefahrene Kilometer'];
-    const sorted = trips.slice().sort((a,b) => a.datum.localeCompare(b.datum));
+    const header = [
+      'Datum','Grund der Fahrt','Startort','Zielort',
+      'Startkilometerstand','Endkilometerstand',
+      'Theoretische Kilometer (GPS-Route)','Effektive Kilometer (km-Stand)',
+      'Abrechnungs-Kilometer'
+    ];
+    const sorted = abgeschlossen.slice().sort((a,b) => a.datum.localeCompare(b.datum));
     const rows = sorted.map(t => [
       new Date(t.datum + 'T00:00:00'),
       t.zweck || (t.kategorie === 'privat' ? 'Privat' : 'Dienstlich'),
@@ -941,7 +1121,9 @@
       t.ziel,
       (t.kmStart !== null && t.kmStart !== undefined) ? t.kmStart : '',
       (t.kmEnde !== null && t.kmEnde !== undefined) ? t.kmEnde : '',
-      tripDistance(t)
+      (typeof t.distanzTheoretisch === 'number') ? t.distanzTheoretisch : '',
+      (typeof t.distanzEffektiv === 'number') ? t.distanzEffektiv : '',
+      tripDistance(t) // effektiv, sonst theoretisch, sonst 0 -- das zählt für die Abrechnung
     ]);
 
     // ---- Arbeitsblatt "Fahrtenbuch" (alle Einzelfahrten) ----
@@ -951,32 +1133,35 @@
       if(wsTrips[cellRef]) { wsTrips[cellRef].t = 'd'; wsTrips[cellRef].z = 'DD.MM.YYYY'; }
     }
     wsTrips['!cols'] = [
-      { wch: 12 }, { wch: 26 }, { wch: 22 }, { wch: 22 }, { wch: 18 }, { wch: 18 }, { wch: 24 }
+      { wch: 12 }, { wch: 26 }, { wch: 22 }, { wch: 22 },
+      { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 20 }, { wch: 20 }
     ];
 
     const lastDataRow = rows.length + 1; // Zeile 1 = Header
-    const totalKmValue = rows.reduce((sum, r) => sum + (typeof r[6] === 'number' ? r[6] : 0), 0);
+    const totalKmValue = rows.reduce((sum, r) => sum + (typeof r[8] === 'number' ? r[8] : 0), 0);
     const defaultPricePerKm = 0.30;
 
     // ---- Arbeitsblatt "Zusammenfassung" (wird als erstes Blatt angezeigt) ----
     const wsSummary = XLSX.utils.aoa_to_sheet([
       ['Fahrtenbuch – Zusammenfassung'],
       [],
-      ['Gesamt gefahrene Kilometer', totalKmValue],
+      ['Gesamt Abrechnungs-Kilometer', totalKmValue],
       [],
       ['Preis pro km (€)', defaultPricePerKm],
       [],
       ['Erstattung gesamt (€)', totalKmValue * defaultPricePerKm],
       [],
-      ['Hinweis: "Preis pro km" oben kannst du direkt in Excel ändern –', ''],
-      ['die Erstattungssumme berechnet sich automatisch neu.', ''],
+      ['Hinweis: Es zählen die effektiven Kilometer (aus km-Stand).', ''],
+      ['Nur wenn keine km-Stände eingetragen wurden, zählt ersatzweise', ''],
+      ['die theoretische GPS-Strecke. "Preis pro km" oben kannst du direkt', ''],
+      ['in Excel ändern – die Erstattungssumme berechnet sich automatisch neu.', ''],
     ]);
     // Formelzellen nachträglich setzen (mit vorab berechnetem Wert, damit sie
     // auch vor dem ersten Neuberechnen in Excel korrekt angezeigt werden)
-    wsSummary['B3'] = { t: 'n', v: totalKmValue, f: `SUM(Fahrtenbuch!G2:G${lastDataRow})`, z: '#,##0.0' };
+    wsSummary['B3'] = { t: 'n', v: totalKmValue, f: `SUM(Fahrtenbuch!I2:I${lastDataRow})`, z: '#,##0.0' };
     wsSummary['B5'] = { t: 'n', v: defaultPricePerKm, z: '0.00" €"' };
     wsSummary['B7'] = { t: 'n', v: totalKmValue * defaultPricePerKm, f: 'B3*B5', z: '#,##0.00" €"' };
-    wsSummary['!cols'] = [ { wch: 42 }, { wch: 16 } ];
+    wsSummary['!cols'] = [ { wch: 55 }, { wch: 16 } ];
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, wsSummary, 'Zusammenfassung');
@@ -985,7 +1170,18 @@
   }
 
   // ---------- events ----------
-  $('newTripBtn').addEventListener('click', () => openForm(null));
+  $('newTripBtn').addEventListener('click', () => {
+    if(activeTrip()){
+      alert('Es ist bereits eine Fahrt aktiv. Bitte zuerst abschließen oder verwerfen, bevor eine neue Fahrt gestartet wird.');
+      return;
+    }
+    openForm(null);
+  });
+  $('activeTripCompleteBtn').addEventListener('click', () => {
+    const active = activeTrip();
+    if(active) openForm(active);
+  });
+  $('activeTripDiscardBtn').addEventListener('click', discardActiveTrip);
   $('cancelBtn').addEventListener('click', closeForm);
   $('saveBtn').addEventListener('click', saveTrip);
   $('exportBtn').addEventListener('click', exportXlsx);
