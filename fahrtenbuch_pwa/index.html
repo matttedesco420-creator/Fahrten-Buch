@@ -953,8 +953,13 @@
     }
 
     if(distanzEffektiv === null && distanzTheoretisch === null){
-      alert('Es konnte weder eine effektive (km-Stand) noch eine theoretische (GPS-Route) Strecke ermittelt werden. Bitte km-Stände eintragen oder eine genauere Adresse verwenden.');
-      return;
+      routeStatus.classList.add('error');
+      routeStatus.textContent = 'Weder km-Stand noch GPS-Route konnten eine Strecke ermitteln.';
+      const proceed = confirm(
+        'Es konnte weder eine effektive (km-Stand) noch eine theoretische (GPS-Route) Strecke ermittelt werden.\n\n' +
+        'Trotzdem ohne Kilometerangabe speichern? Die km-Spalten bleiben dann leer und die Zeile wird im Excel-Export rötlich markiert, damit du sie später ergänzen kannst.'
+      );
+      if(!proceed) return;
     }
 
     const tripData = {
@@ -1132,7 +1137,7 @@
       'Datum','Fahrt Nr. (Tag)','Grund der Fahrt','Notiz','Startort','Zielort',
       'Startkilometerstand','Endkilometerstand',
       'Theoretische Kilometer (GPS-Route)','Effektive Kilometer (km-Stand)',
-      'Abrechnungs-Kilometer'
+      'Abrechnungs-Kilometer','Hinweis'
     ];
     const sorted = abgeschlossen.slice().sort((a,b) => a.datum.localeCompare(b.datum) || (a.tagesNummer||0) - (b.tagesNummer||0));
     const rows = sorted.map(t => [
@@ -1146,7 +1151,8 @@
       (t.kmEnde !== null && t.kmEnde !== undefined) ? t.kmEnde : '',
       (typeof t.distanzTheoretisch === 'number') ? t.distanzTheoretisch : '',
       (typeof t.distanzEffektiv === 'number') ? t.distanzEffektiv : '',
-      tripDistance(t) // effektiv, sonst theoretisch, sonst 0 -- das zählt für die Abrechnung
+      tripDistance(t), // effektiv, sonst theoretisch, sonst 0 -- das zählt für die Abrechnung
+      (typeof t.distanzEffektiv !== 'number' && typeof t.distanzTheoretisch !== 'number') ? '⚠ Keine Kilometerangabe' : ''
     ]);
 
     // ---- Arbeitsblatt "Fahrtenbuch" (alle Einzelfahrten) ----
@@ -1163,9 +1169,23 @@
       const cellRef = XLSX.utils.encode_cell({ r: r + 1, c: 0 });
       wsTrips[cellRef] = { t: 'n', v: serial, z: 'DD.MM.YYYY' };
     }
+
+    // Zeilen ohne jegliche Kilometerangabe (weder effektiv noch theoretisch)
+    // rötlich markieren, damit sie später leicht nachgetragen werden können.
+    const REDDISH_FILL = { patternType: 'solid', fgColor: { rgb: 'FFF8D7DA' }, bgColor: { rgb: 'FFF8D7DA' } };
+    for(let r = 0; r < rows.length; r++){
+      const t = sorted[r];
+      const fehltKomplett = typeof t.distanzEffektiv !== 'number' && typeof t.distanzTheoretisch !== 'number';
+      if(!fehltKomplett) continue;
+      for(let c = 0; c < header.length; c++){
+        const ref = XLSX.utils.encode_cell({ r: r + 1, c });
+        if(!wsTrips[ref]) wsTrips[ref] = { t: 's', v: '' };
+        wsTrips[ref].s = { fill: REDDISH_FILL };
+      }
+    }
     wsTrips['!cols'] = [
       { wch: 12 }, { wch: 14 }, { wch: 26 }, { wch: 26 }, { wch: 22 }, { wch: 22 },
-      { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 20 }, { wch: 20 }
+      { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 20 }, { wch: 20 }, { wch: 24 }
     ];
 
     const lastDataRow = rows.length + 1; // Zeile 1 = Header
@@ -1197,7 +1217,7 @@
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, wsSummary, 'Zusammenfassung');
     XLSX.utils.book_append_sheet(wb, wsTrips, 'Fahrtenbuch');
-    XLSX.writeFile(wb, 'fahrtenbuch.xlsx');
+    XLSX.writeFile(wb, 'fahrtenbuch.xlsx', { cellStyles: true });
   }
 
   // ---------- events ----------
