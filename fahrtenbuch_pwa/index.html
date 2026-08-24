@@ -629,6 +629,45 @@
   }
 
   // ---------- GPS ----------
+  // ---------- Entfernung zwischen zwei Koordinaten (Meter) ----------
+  function distanceMeters(lat1, lon1, lat2, lon2){
+    const R = 6371000;
+    const toRad = (deg) => (deg * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  // ---------- Fallback: nächstgelegene Hausnummer im Umkreis suchen ----------
+  // Manche Adressen haben in OpenStreetMap keine Hausnummer direkt am
+  // Straßen-Datensatz hinterlegt. Als Fallback fragen wir Gebäude im
+  // Umkreis (Overpass API) nach der jeweils nächstgelegenen Hausnummer.
+  async function findNearestHousenumber(lat, lon, radiusMeters){
+    const query = `[out:json][timeout:10];(node(around:${radiusMeters},${lat},${lon})["addr:housenumber"];way(around:${radiusMeters},${lat},${lon})["addr:housenumber"];);out center 15;`;
+    const resp = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      body: query,
+    });
+    if(!resp.ok) throw new Error('Umkreissuche fehlgeschlagen');
+    const data = await resp.json();
+    if(!data.elements || data.elements.length === 0) return null;
+
+    let best = null, bestDist = Infinity;
+    for(const el of data.elements){
+      const elLat = el.lat ?? el.center?.lat;
+      const elLon = el.lon ?? el.center?.lon;
+      if(elLat == null || elLon == null || !el.tags) continue;
+      const d = distanceMeters(lat, lon, elLat, elLon);
+      if(d < bestDist){
+        bestDist = d;
+        best = { housenumber: el.tags['addr:housenumber'], street: el.tags['addr:street'] };
+      }
+    }
+    return best;
+  }
+
   function captureGps(targetInputId, btn){
     if(!navigator.geolocation){
       gpsStatus.textContent = 'GPS wird von diesem Browser nicht unterstützt.';
@@ -640,7 +679,7 @@
     gpsStatus.textContent = 'Standort wird ermittelt …';
 
     navigator.geolocation.getCurrentPosition(async (pos) => {
-      const { latitude, longitude } = pos.coords;
+      const { latitude, longitude, accuracy } = pos.coords;
 
       if(targetInputId === 'f-start'){
         formStartCoords = { lat: latitude, lon: longitude };
@@ -651,14 +690,43 @@
       }
 
       try{
-        const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=16&addressdetails=1`);
+        const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`);
         if(!resp.ok) throw new Error('Reverse-Geocoding fehlgeschlagen');
         const data = await resp.json();
         const addr = data.address || {};
-        const short = [addr.road, addr.house_number, addr.postcode, addr.city || addr.town || addr.village]
+
+        let street = addr.road;
+        let housenumber = addr.house_number;
+        let hausnummerPerUmkreissuche = false;
+
+        if(!housenumber){
+          gpsStatus.textContent = 'Standort übernommen, suche Hausnummer in der Nähe …';
+          try{
+            const nearest = await findNearestHousenumber(latitude, longitude, 100);
+            if(nearest && nearest.housenumber){
+              housenumber = nearest.housenumber;
+              if(!street) street = nearest.street;
+              hausnummerPerUmkreissuche = true;
+            }
+          }catch(e){ /* Umkreissuche fehlgeschlagen -- einfach ohne Hausnummer weitermachen */ }
+        }
+
+        const strasseHausnr = [street, housenumber].filter(Boolean).join(' ');
+        const ortsteil = [addr.postcode, addr.city || addr.town || addr.village || addr.municipality]
           .filter(Boolean).join(' ');
-        $(targetInputId).value = short || data.display_name || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-        gpsStatus.textContent = 'Standort übernommen.';
+        const formatted = [strasseHausnr, ortsteil].filter(Boolean).join(', ');
+        $(targetInputId).value = formatted || data.display_name || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+
+        const ungenau = accuracy && accuracy > 100;
+        if(ungenau){
+          gpsStatus.textContent = `Standort übernommen (Genauigkeit nur ±${Math.round(accuracy)}m – Adresse ggf. prüfen).`;
+        } else if(!housenumber){
+          gpsStatus.textContent = 'Standort übernommen (keine Hausnummer in der Nähe gefunden – bitte manuell ergänzen).';
+        } else if(hausnummerPerUmkreissuche){
+          gpsStatus.textContent = 'Standort übernommen (Hausnummer aus nahegelegenem Gebäude ergänzt).';
+        } else {
+          gpsStatus.textContent = 'Standort übernommen.';
+        }
       }catch(e){
         $(targetInputId).value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
         gpsStatus.textContent = 'Adresse konnte nicht aufgelöst werden – Koordinaten übernommen.';
