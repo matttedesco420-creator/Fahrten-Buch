@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Fahrtenbuch</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#12151A">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Fahrtenbuch">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg: #12151A;
+    --panel: #1B2029;
+    --panel-alt: #20262F;
+    --border: #2A313D;
+    --text: #EDEFF3;
+    --text-muted: #8A93A3;
+    --amber: #E8A33D;
+    --amber-dim: #A97328;
+    --amber-glow: rgba(232,163,61,0.35);
+    --teal: #3FA88C;
+    --red: #C1554A;
+    --radius: 10px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height:100vh;
+    padding-bottom: 40px;
+  }
+  .mono{
+    font-family: ui-monospace, "SF Mono", "Roboto Mono", Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  #app{ max-width: 560px; margin: 0 auto; padding: 16px; }
+
+  /* ---------- Odometer header ---------- */
+  .dash{
+    background: linear-gradient(180deg, var(--panel) 0%, #171B22 100%);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 18px 16px;
+    margin-bottom: 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .dash::before{
+    content:"";
+    position:absolute; inset:0;
+    background: radial-gradient(ellipse at top, var(--amber-glow), transparent 60%);
+    opacity: 0.25;
+    pointer-events:none;
+  }
+  .month-row{
+    display:flex; align-items:center; justify-content:center; gap:14px;
+    color: var(--text-muted); font-size: 13px; letter-spacing: .04em; text-transform: uppercase;
+    margin-bottom: 10px; position:relative; z-index:1;
+  }
+  .month-nav-btn{
+    background:none; border:1px solid var(--border); color: var(--text-muted);
+    width:26px; height:26px; border-radius:6px; cursor:pointer; font-size:14px; line-height:1;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .month-nav-btn:hover{ color: var(--text); border-color: var(--amber-dim); }
+  .month-nav-btn:focus-visible{ outline:2px solid var(--amber); outline-offset:2px; }
+
+  .odometer-wrap{ display:flex; justify-content:center; position:relative; z-index:1; }
+  .odometer{
+    display:flex; gap:3px;
+    background:#0B0D11;
+    border:1px solid var(--border);
+    border-radius:6px;
+    padding: 10px 12px;
+    box-shadow: inset 0 2px 6px rgba(0,0,0,0.6);
+  }
+  .digit-slot{
+    width: 24px; height: 34px;
+    background: #05060A;
+    border-radius: 3px;
+    display:flex; align-items:center; justify-content:center;
+    font-size: 22px; font-weight: 600;
+    color: var(--amber);
+    text-shadow: 0 0 8px var(--amber-glow);
+    transition: transform .25s ease;
+  }
+  @media (prefers-reduced-motion: reduce){ .digit-slot{ transition:none; } }
+  .digit-slot.bump{ transform: translateY(-3px); }
+  .odo-unit{ align-self:flex-end; color: var(--text-muted); font-size:12px; margin-left:6px; margin-bottom:2px; }
+
+  .split-row{
+    display:flex; justify-content:center; gap:18px; margin-top:12px;
+    font-size: 12.5px; color: var(--text-muted); position:relative; z-index:1;
+  }
+  .split-row .dot{ display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; }
+  .dot-amber{ background: var(--amber); }
+  .dot-teal{ background: var(--teal); }
+  .split-row .val{ color: var(--text); font-weight:600; }
+
+  /* ---------- Quick actions ---------- */
+  .quickactions{ display:flex; gap:10px; margin-bottom: 16px; }
+  button{ font-family: inherit; }
+  .btn-primary{
+    flex:1; background: var(--amber); color: #171200; border:none;
+    padding: 13px 16px; border-radius: var(--radius); font-weight:700; font-size:15px;
+    cursor:pointer;
+  }
+  .btn-primary:hover{ background:#f0ae4c; }
+  .btn-primary:focus-visible{ outline:2px solid #fff; outline-offset:2px; }
+  .btn-ghost{
+    background: var(--panel); color: var(--text); border:1px solid var(--border);
+    padding: 13px 16px; border-radius: var(--radius); font-weight:600; font-size:14px; cursor:pointer;
+  }
+  .btn-ghost:hover{ border-color: var(--amber-dim); }
+  .btn-ghost:focus-visible{ outline:2px solid var(--amber); outline-offset:2px; }
+
+  /* ---------- Form ---------- */
+  .form-panel{
+    background: var(--panel);
+    border:1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px; margin-bottom: 18px;
+  }
+  .form-panel.hidden{ display:none; }
+  .form-title{ font-size:15px; font-weight:700; margin-bottom:14px; }
+  .field{ margin-bottom: 12px; }
+  .field label{ display:block; font-size:12px; color: var(--text-muted); margin-bottom:5px; letter-spacing:.02em; }
+  .field input, .field select, .field textarea{
+    width:100%; background:#0F1319; border:1px solid var(--border); color: var(--text);
+    padding: 10px 12px; border-radius:8px; font-size:15px; font-family:inherit;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus{
+    outline:2px solid var(--amber); outline-offset:1px; border-color: var(--amber-dim);
+  }
+  .field-with-btn{ display:flex; gap:8px; }
+  .field-with-btn input{ flex:1; }
+  .gps-btn{
+    background:#16342C; border:1px solid var(--teal); color: var(--teal);
+    border-radius:8px; padding:0 12px; font-size:13px; font-weight:600; cursor:pointer;
+    white-space:nowrap;
+  }
+  .gps-btn:hover{ background:#1B4238; }
+  .gps-btn:focus-visible{ outline:2px solid var(--teal); outline-offset:2px; }
+  .gps-btn[disabled]{ opacity:.5; cursor:wait; }
+  .field-row{ display:flex; gap:10px; }
+  .field-row .field{ flex:1; }
+  .km-diff{ font-size:12.5px; color: var(--text-muted); margin-top:-4px; margin-bottom:12px; }
+  .km-diff .val{ color: var(--amber); font-weight:700; }
+
+  .segmented{ display:flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .segmented button{
+    flex:1; padding:9px; background:#0F1319; color: var(--text-muted); border:none; font-size:14px; font-weight:600; cursor:pointer;
+  }
+  .segmented button.active[data-cat="dienstlich"]{ background: var(--amber); color:#171200; }
+  .segmented button.active[data-cat="privat"]{ background: var(--teal); color:#0A1A16; }
+
+  .form-actions{ display:flex; gap:10px; margin-top:4px; }
+  .form-actions .btn-primary{ flex:1; }
+  .btn-cancel{
+    background:none; border:1px solid var(--border); color: var(--text-muted);
+    padding: 13px 16px; border-radius: var(--radius); font-weight:600; cursor:pointer;
+  }
+  .gps-status{ font-size:12px; color: var(--teal); margin-top:4px; min-height:14px; }
+  .gps-status.error{ color: var(--red); }
+
+  /* ---------- Ledger ---------- */
+  .ledger-header{
+    display:flex; justify-content:space-between; align-items:center;
+    font-size:12px; text-transform:uppercase; letter-spacing:.05em; color: var(--text-muted);
+    padding: 0 4px 8px;
+  }
+  .trip-row{
+    background: var(--panel);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    display:flex; justify-content:space-between; align-items:center; gap:10px;
+  }
+  .trip-row:nth-child(even){ background: var(--panel-alt); }
+  .trip-main{ flex:1; min-width:0; }
+  .trip-route{ font-size:14.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .trip-meta{ font-size:12px; color: var(--text-muted); margin-top:3px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .trip-meta .dot{ display:inline-block; width:6px; height:6px; border-radius:50%; }
+  .trip-km{ text-align:right; }
+  .trip-km .n{ font-size:16px; font-weight:700; color: var(--amber); }
+  .trip-km .u{ font-size:11px; color: var(--text-muted); display:block; }
+  .row-actions{ display:flex; gap:6px; }
+  .icon-btn{
+    background:none; border:none; color: var(--text-muted); cursor:pointer; font-size:16px;
+    width:28px; height:28px; border-radius:6px; display:flex; align-items:center; justify-content:center;
+  }
+  .icon-btn:hover{ background: rgba(255,255,255,0.06); color: var(--text); }
+  .icon-btn:focus-visible{ outline:2px solid var(--amber); outline-offset:1px; }
+
+  .empty-state{
+    text-align:center; padding: 40px 20px; color: var(--text-muted); font-size:14px;
+    border:1px dashed var(--border); border-radius: var(--radius);
+  }
+
+  .footer-link{
+    display:block; text-align:center; margin-top:22px; font-size:12px; color: var(--text-muted);
+    background:none; border:none; cursor:pointer; text-decoration:underline; width:100%;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="dash">
+    <div class="month-row">
+      <button class="month-nav-btn" id="prevMonth" aria-label="Vorheriger Monat">‹</button>
+      <span id="monthLabel">—</span>
+      <button class="month-nav-btn" id="nextMonth" aria-label="Nächster Monat">›</button>
+    </div>
+    <div class="odometer-wrap">
+      <div class="odometer mono" id="odometer"></div>
+      <span class="odo-unit">km</span>
+    </div>
+    <div class="split-row">
+      <span><span class="dot dot-amber"></span>dienstlich <span class="val" id="sumDienstlich">0</span> km</span>
+      <span><span class="dot dot-teal"></span>privat <span class="val" id="sumPrivat">0</span> km</span>
+    </div>
+  </div>
+
+  <div class="quickactions">
+    <button class="btn-primary" id="newTripBtn">+ Neue Fahrt</button>
+    <button class="btn-ghost" id="exportBtn">Export (Excel)</button>
+  </div>
+
+  <div class="form-panel hidden" id="formPanel">
+    <div class="form-title" id="formTitle">Neue Fahrt</div>
+
+    <div class="field">
+      <label for="f-datum">Datum</label>
+      <input type="date" id="f-datum">
+    </div>
+
+    <div class="field">
+      <label>Kategorie</label>
+      <div class="segmented" id="catSeg">
+        <button type="button" data-cat="dienstlich" class="active">Dienstlich</button>
+        <button type="button" data-cat="privat">Privat</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="f-zweck">Zweck / Kunde</label>
+      <input type="text" id="f-zweck" placeholder="z. B. Kundentermin Müller GmbH">
+    </div>
+
+    <div class="field">
+      <label for="f-start">Startort</label>
+      <div class="field-with-btn">
+        <input type="text" id="f-start" placeholder="z. B. Büro Köln">
+        <button type="button" class="gps-btn" data-target="f-start">📍 GPS</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="f-ziel">Zielort</label>
+      <div class="field-with-btn">
+        <input type="text" id="f-ziel" placeholder="z. B. Musterstraße 1, Bonn">
+        <button type="button" class="gps-btn" data-target="f-ziel">📍 GPS</button>
+      </div>
+      <div class="gps-status" id="gpsStatus"></div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label for="f-kmstart">km-Stand Start</label>
+        <input type="number" id="f-kmstart" inputmode="numeric" placeholder="12345">
+      </div>
+      <div class="field">
+        <label for="f-kmende">km-Stand Ende</label>
+        <input type="number" id="f-kmende" inputmode="numeric" placeholder="12400">
+      </div>
+    </div>
+    <div class="km-diff">Gefahrene Strecke: <span class="val" id="kmDiffPreview">–</span> km</div>
+    <div class="km-diff" style="margin-top:-8px;">Beide Felder leer lassen → Strecke wird aus Start-/Zielort automatisch geschätzt.</div>
+    <div class="gps-status" id="routeStatus"></div>
+
+    <div class="field">
+      <label for="f-notiz">Notiz (optional)</label>
+      <input type="text" id="f-notiz" placeholder="Zusatzinfo">
+    </div>
+
+    <div class="form-actions">
+      <button class="btn-cancel" id="cancelBtn">Abbrechen</button>
+      <button class="btn-primary" id="saveBtn">Fahrt speichern</button>
+    </div>
+  </div>
+
+  <div class="ledger-header">
+    <span>Fahrten</span>
+    <span id="tripCount">0</span>
+  </div>
+  <div id="tripList"></div>
+  <div class="empty-state hidden" id="emptyState">Noch keine Fahrten in diesem Monat.<br>Tippe auf „+ Neue Fahrt", um zu starten.</div>
+
+  <button class="footer-link" id="clearAllBtn">Alle Daten löschen</button>
+</div>
+
+<script>
+(function(){
+  const STORAGE_KEY = 'fahrtenbuch:trips';
+  let trips = [];
+  let viewDate = new Date(); // month currently displayed
+  let editingId = null;
+  let currentCategory = 'dienstlich';
+  let formStartCoords = null; // { lat, lon } | null
+  let formZielCoords = null;
+  let lastGeocodedStart = null; // zuletzt geprüfter Adresstext, um doppelte Anfragen zu vermeiden
+  let lastGeocodedZiel = null;
+
+  const $ = (id) => document.getElementById(id);
+  const monthLabel = $('monthLabel');
+  const odometerEl = $('odometer');
+  const sumDienstlichEl = $('sumDienstlich');
+  const sumPrivatEl = $('sumPrivat');
+  const tripListEl = $('tripList');
+  const tripCountEl = $('tripCount');
+  const emptyStateEl = $('emptyState');
+  const formPanel = $('formPanel');
+  const formTitle = $('formTitle');
+  const gpsStatus = $('gpsStatus');
+  const routeStatus = $('routeStatus');
+
+  const MONTH_NAMES = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+
+  // ---------- persistence ----------
+  async function loadTrips(){
+    try{
+      const result = await window.storage.get(STORAGE_KEY, false);
+      trips = result && result.value ? JSON.parse(result.value) : [];
+    }catch(e){
+      trips = [];
+    }
+    render();
+  }
+
+  async function persist(){
+    try{
+      await window.storage.set(STORAGE_KEY, JSON.stringify(trips), false);
+    }catch(e){
+      console.error('Speichern fehlgeschlagen', e);
+      alert('Speichern ist fehlgeschlagen. Bitte versuch es erneut.');
+    }
+  }
+
+  // ---------- helpers ----------
+  function monthKey(date){
+    return date.getFullYear() + '-' + String(date.getMonth()+1).padStart(2,'0');
+  }
+  function fmtDateShort(iso){
+    const d = new Date(iso + 'T00:00:00');
+    return d.toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit' });
+  }
+
+  function tripsForCurrentMonth(){
+    const mk = monthKey(viewDate);
+    return trips.filter(t => t.datum && t.datum.startsWith(mk));
+  }
+
+  // Liefert die gefahrenen km eines Eintrags: aus km-Ständen, sonst aus der
+  // gespeicherten (ggf. geschätzten) Distanz. Deckt auch alte Einträge ab,
+  // die noch kein distanzKm-Feld hatten.
+  function tripDistance(t){
+    if(typeof t.distanzKm === 'number' && !isNaN(t.distanzKm)) return t.distanzKm;
+    return Math.max(0, (t.kmEnde - t.kmStart) || 0);
+  }
+
+  function render(){
+    monthLabel.textContent = MONTH_NAMES[viewDate.getMonth()] + ' ' + viewDate.getFullYear();
+
+    const monthTrips = tripsForCurrentMonth().sort((a,b) => b.datum.localeCompare(a.datum));
+    let totalKm = 0, dienstKm = 0, privatKm = 0;
+    monthTrips.forEach(t => {
+      const dist = tripDistance(t);
+      totalKm += dist;
+      if(t.kategorie === 'privat') privatKm += dist; else dienstKm += dist;
+    });
+
+    renderOdometer(totalKm);
+    sumDienstlichEl.textContent = dienstKm;
+    sumPrivatEl.textContent = privatKm;
+
+    tripCountEl.textContent = monthTrips.length;
+    tripListEl.innerHTML = '';
+    if(monthTrips.length === 0){
+      emptyStateEl.classList.remove('hidden');
+    } else {
+      emptyStateEl.classList.add('hidden');
+      monthTrips.forEach(t => tripListEl.appendChild(renderTripRow(t)));
+    }
+  }
+
+  function renderOdometer(totalKm){
+    const digits = String(Math.max(0, Math.round(totalKm))).padStart(6,'0').split('');
+    odometerEl.innerHTML = '';
+    digits.forEach(d => {
+      const slot = document.createElement('span');
+      slot.className = 'digit-slot bump';
+      slot.textContent = d;
+      odometerEl.appendChild(slot);
+      requestAnimationFrame(()=> setTimeout(()=> slot.classList.remove('bump'), 220));
+    });
+  }
+
+  function renderTripRow(t){
+    const dist = tripDistance(t);
+    const row = document.createElement('div');
+    row.className = 'trip-row';
+    const dotClass = t.kategorie === 'privat' ? 'dot-teal' : 'dot-amber';
+    const geschaetztTag = t.geschaetzt ? ' · geschätzt' : '';
+    row.innerHTML = `
+      <div class="trip-main">
+        <div class="trip-route">${escapeHtml(t.start)} → ${escapeHtml(t.ziel)}</div>
+        <div class="trip-meta">
+          <span class="dot ${dotClass}"></span>
+          ${fmtDateShort(t.datum)} · ${escapeHtml(t.zweck || (t.kategorie === 'privat' ? 'Privat' : 'Dienstlich'))}${geschaetztTag}
+        </div>
+      </div>
+      <div class="trip-km">
+        <span class="n">${t.geschaetzt ? '≈' : ''}${dist.toFixed(t.geschaetzt ? 1 : 0)}</span>
+        <span class="u">km</span>
+      </div>
+      <div class="row-actions">
+        <button class="icon-btn" data-edit="${t.id}" aria-label="Bearbeiten">✎</button>
+        <button class="icon-btn" data-del="${t.id}" aria-label="Löschen">✕</button>
+      </div>
+    `;
+    return row;
+  }
+
+  function escapeHtml(str){
+    const div = document.createElement('div');
+    div.textContent = str || '';
+    return div.innerHTML;
+  }
+
+  // ---------- form ----------
+  function openForm(trip){
+    editingId = trip ? trip.id : null;
+    formTitle.textContent = trip ? 'Fahrt bearbeiten' : 'Neue Fahrt';
+    $('f-datum').value = trip ? trip.datum : new Date().toISOString().slice(0,10);
+    $('f-zweck').value = trip ? (trip.zweck || '') : '';
+    $('f-start').value = trip ? trip.start : '';
+    $('f-ziel').value = trip ? trip.ziel : '';
+    $('f-kmstart').value = (trip && trip.kmStart !== null && trip.kmStart !== undefined) ? trip.kmStart : '';
+    $('f-kmende').value = (trip && trip.kmEnde !== null && trip.kmEnde !== undefined) ? trip.kmEnde : '';
+    $('f-notiz').value = trip ? (trip.notiz || '') : '';
+    setCategory(trip ? trip.kategorie : 'dienstlich');
+
+    formStartCoords = (trip && typeof trip.startLat === 'number') ? { lat: trip.startLat, lon: trip.startLon } : null;
+    formZielCoords = (trip && typeof trip.zielLat === 'number') ? { lat: trip.zielLat, lon: trip.zielLon } : null;
+    lastGeocodedStart = trip ? trip.start : null;
+    lastGeocodedZiel = trip ? trip.ziel : null;
+
+    gpsStatus.textContent = '';
+    gpsStatus.classList.remove('error');
+    routeStatus.textContent = '';
+    routeStatus.classList.remove('error');
+    updateKmPreview();
+    formPanel.classList.remove('hidden');
+    formPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function closeForm(){
+    formPanel.classList.add('hidden');
+    editingId = null;
+  }
+
+  function setCategory(cat){
+    currentCategory = cat;
+    document.querySelectorAll('#catSeg button').forEach(b => {
+      b.classList.toggle('active', b.dataset.cat === cat);
+    });
+  }
+
+  function updateKmPreview(){
+    const s = parseFloat($('f-kmstart').value);
+    const e = parseFloat($('f-kmende').value);
+    const preview = $('kmDiffPreview');
+    if(!isNaN(s) && !isNaN(e) && e >= s){
+      preview.textContent = (e - s).toFixed(0);
+    } else {
+      preview.textContent = '–';
+    }
+  }
+
+  // ---------- Adress-Erkennung (Text -> Koordinaten) ----------
+  async function geocodeAddress(query){
+    const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`);
+    if(!resp.ok) throw new Error('Geocoding fehlgeschlagen');
+    const data = await resp.json();
+    if(!data || data.length === 0) return null;
+    return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+  }
+
+  async function geocodeField(fieldId, statusEl){
+    const value = $(fieldId).value.trim();
+    if(!value) return null;
+    statusEl.textContent = 'Adresse wird geprüft …';
+    statusEl.classList.remove('error');
+    try{
+      const coords = await geocodeAddress(value);
+      if(coords){
+        statusEl.textContent = 'Adresse erkannt ✓';
+      } else {
+        statusEl.textContent = 'Adresse nicht eindeutig gefunden.';
+        statusEl.classList.add('error');
+      }
+      return coords;
+    }catch(e){
+      statusEl.textContent = 'Adresse konnte nicht geprüft werden (keine Internetverbindung?).';
+      statusEl.classList.add('error');
+      return null;
+    }
+  }
+
+  // ---------- Routenberechnung (zwei Koordinaten -> km) ----------
+  async function routeDistanceKm(a, b){
+    const url = `https://router.project-osrm.org/route/v1/driving/${a.lon},${a.lat};${b.lon},${b.lat}?overview=false`;
+    const resp = await fetch(url);
+    if(!resp.ok) throw new Error('Routenberechnung fehlgeschlagen');
+    const data = await resp.json();
+    if(!data.routes || data.routes.length === 0) throw new Error('Keine Route gefunden');
+    return Math.round((data.routes[0].distance / 1000) * 10) / 10; // 1 Nachkommastelle
+  }
+
+  async function saveTrip(){
+    const datum = $('f-datum').value;
+    const start = $('f-start').value.trim();
+    const ziel = $('f-ziel').value.trim();
+    const kmStartRaw = $('f-kmstart').value.trim();
+    const kmEndeRaw = $('f-kmende').value.trim();
+
+    if(!datum || !start || !ziel){
+      alert('Bitte Datum, Start und Ziel ausfüllen.');
+      return;
+    }
+
+    const hasKmStart = kmStartRaw !== '';
+    const hasKmEnde = kmEndeRaw !== '';
+
+    let kmStart = null, kmEnde = null, distanzKm = null, geschaetzt = false;
+
+    if(hasKmStart && hasKmEnde){
+      // Fall 1: km-Stände wurden eingetragen -> normale Berechnung
+      kmStart = parseFloat(kmStartRaw);
+      kmEnde = parseFloat(kmEndeRaw);
+      if(isNaN(kmStart) || isNaN(kmEnde)){
+        alert('Bitte gültige Kilometerstände eingeben.');
+        return;
+      }
+      if(kmEnde < kmStart){
+        alert('Der End-Kilometerstand darf nicht kleiner als der Start-Kilometerstand sein.');
+        return;
+      }
+      distanzKm = kmEnde - kmStart;
+    } else if(hasKmStart || hasKmEnde){
+      alert('Bitte entweder beide Kilometerstände ausfüllen oder beide leer lassen (dann wird die Strecke automatisch geschätzt).');
+      return;
+    } else {
+      // Fall 2: keine km-Stände -> Strecke aus Start-/Zielort automatisch schätzen
+      if(!formStartCoords){
+        formStartCoords = await geocodeField('f-start', gpsStatus);
+      }
+      if(!formZielCoords){
+        formZielCoords = await geocodeField('f-ziel', gpsStatus);
+      }
+      if(!formStartCoords || !formZielCoords){
+        alert('Start- oder Zielort konnten nicht automatisch erkannt werden. Bitte eine genauere Adresse verwenden oder die Kilometerstände manuell eintragen.');
+        return;
+      }
+      routeStatus.classList.remove('error');
+      routeStatus.textContent = 'Strecke wird berechnet …';
+      try{
+        distanzKm = await routeDistanceKm(formStartCoords, formZielCoords);
+        geschaetzt = true;
+        routeStatus.textContent = `Strecke automatisch berechnet: ≈ ${distanzKm} km`;
+      }catch(e){
+        routeStatus.textContent = 'Strecke konnte nicht automatisch berechnet werden. Bitte Kilometerstände manuell eintragen.';
+        routeStatus.classList.add('error');
+        return;
+      }
+    }
+
+    const tripData = {
+      id: editingId || (Date.now().toString(36) + Math.random().toString(36).slice(2,7)),
+      datum, start, ziel, kmStart, kmEnde, distanzKm, geschaetzt,
+      startLat: formStartCoords ? formStartCoords.lat : null,
+      startLon: formStartCoords ? formStartCoords.lon : null,
+      zielLat: formZielCoords ? formZielCoords.lat : null,
+      zielLon: formZielCoords ? formZielCoords.lon : null,
+      zweck: $('f-zweck').value.trim(),
+      notiz: $('f-notiz').value.trim(),
+      kategorie: currentCategory
+    };
+
+    if(editingId){
+      const idx = trips.findIndex(t => t.id === editingId);
+      if(idx > -1) trips[idx] = tripData;
+    } else {
+      trips.push(tripData);
+    }
+
+    await persist();
+    closeForm();
+    // jump view to the month of the saved trip
+    viewDate = new Date(datum + 'T00:00:00');
+    render();
+  }
+
+  async function deleteTrip(id){
+    if(!confirm('Diese Fahrt wirklich löschen?')) return;
+    trips = trips.filter(t => t.id !== id);
+    await persist();
+    render();
+  }
+
+  // ---------- GPS ----------
+  function captureGps(targetInputId, btn){
+    if(!navigator.geolocation){
+      gpsStatus.textContent = 'GPS wird von diesem Browser nicht unterstützt.';
+      gpsStatus.classList.add('error');
+      return;
+    }
+    btn.disabled = true;
+    gpsStatus.classList.remove('error');
+    gpsStatus.textContent = 'Standort wird ermittelt …';
+
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const { latitude, longitude } = pos.coords;
+
+      if(targetInputId === 'f-start'){
+        formStartCoords = { lat: latitude, lon: longitude };
+        lastGeocodedStart = null; // GPS-Koordinaten haben Vorrang vor Text-Geocoding
+      } else {
+        formZielCoords = { lat: latitude, lon: longitude };
+        lastGeocodedZiel = null;
+      }
+
+      try{
+        const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=16&addressdetails=1`);
+        if(!resp.ok) throw new Error('Reverse-Geocoding fehlgeschlagen');
+        const data = await resp.json();
+        const addr = data.address || {};
+        const short = [addr.road, addr.house_number, addr.postcode, addr.city || addr.town || addr.village]
+          .filter(Boolean).join(' ');
+        $(targetInputId).value = short || data.display_name || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+        gpsStatus.textContent = 'Standort übernommen.';
+      }catch(e){
+        $(targetInputId).value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+        gpsStatus.textContent = 'Adresse konnte nicht aufgelöst werden – Koordinaten übernommen.';
+      }
+      btn.disabled = false;
+    }, (err) => {
+      gpsStatus.textContent = 'Standort konnte nicht ermittelt werden: ' + err.message;
+      gpsStatus.classList.add('error');
+      btn.disabled = false;
+    }, { enableHighAccuracy: true, timeout: 12000 });
+  }
+
+  // ---------- Excel export ----------
+  function exportXlsx(){
+    if(trips.length === 0){
+      alert('Es gibt noch keine Fahrten zum Exportieren.');
+      return;
+    }
+    if(typeof XLSX === 'undefined'){
+      alert('Die Excel-Bibliothek konnte nicht geladen werden. Bitte Internetverbindung prüfen und erneut versuchen.');
+      return;
+    }
+
+    const header = ['Datum','Grund der Fahrt','Startort','Zielort','Startkilometerstand','Endkilometerstand','Gesamt gefahrene Kilometer'];
+    const sorted = trips.slice().sort((a,b) => a.datum.localeCompare(b.datum));
+    const rows = sorted.map(t => [
+      new Date(t.datum + 'T00:00:00'),
+      t.zweck || (t.kategorie === 'privat' ? 'Privat' : 'Dienstlich'),
+      t.start,
+      t.ziel,
+      (t.kmStart !== null && t.kmStart !== undefined) ? t.kmStart : '',
+      (t.kmEnde !== null && t.kmEnde !== undefined) ? t.kmEnde : '',
+      tripDistance(t)
+    ]);
+
+    // ---- Arbeitsblatt "Fahrtenbuch" (alle Einzelfahrten) ----
+    const wsTrips = XLSX.utils.aoa_to_sheet([header, ...rows]);
+    for(let r = 0; r < rows.length; r++){
+      const cellRef = XLSX.utils.encode_cell({ r: r + 1, c: 0 });
+      if(wsTrips[cellRef]) { wsTrips[cellRef].t = 'd'; wsTrips[cellRef].z = 'DD.MM.YYYY'; }
+    }
+    wsTrips['!cols'] = [
+      { wch: 12 }, { wch: 26 }, { wch: 22 }, { wch: 22 }, { wch: 18 }, { wch: 18 }, { wch: 24 }
+    ];
+
+    const lastDataRow = rows.length + 1; // Zeile 1 = Header
+    const totalKmValue = rows.reduce((sum, r) => sum + (typeof r[6] === 'number' ? r[6] : 0), 0);
+    const defaultPricePerKm = 0.30;
+
+    // ---- Arbeitsblatt "Zusammenfassung" (wird als erstes Blatt angezeigt) ----
+    const wsSummary = XLSX.utils.aoa_to_sheet([
+      ['Fahrtenbuch – Zusammenfassung'],
+      [],
+      ['Gesamt gefahrene Kilometer', totalKmValue],
+      [],
+      ['Preis pro km (€)', defaultPricePerKm],
+      [],
+      ['Erstattung gesamt (€)', totalKmValue * defaultPricePerKm],
+      [],
+      ['Hinweis: "Preis pro km" oben kannst du direkt in Excel ändern –', ''],
+      ['die Erstattungssumme berechnet sich automatisch neu.', ''],
+    ]);
+    // Formelzellen nachträglich setzen (mit vorab berechnetem Wert, damit sie
+    // auch vor dem ersten Neuberechnen in Excel korrekt angezeigt werden)
+    wsSummary['B3'] = { t: 'n', v: totalKmValue, f: `SUM(Fahrtenbuch!G2:G${lastDataRow})`, z: '#,##0.0' };
+    wsSummary['B5'] = { t: 'n', v: defaultPricePerKm, z: '0.00" €"' };
+    wsSummary['B7'] = { t: 'n', v: totalKmValue * defaultPricePerKm, f: 'B3*B5', z: '#,##0.00" €"' };
+    wsSummary['!cols'] = [ { wch: 42 }, { wch: 16 } ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, wsSummary, 'Zusammenfassung');
+    XLSX.utils.book_append_sheet(wb, wsTrips, 'Fahrtenbuch');
+    XLSX.writeFile(wb, 'fahrtenbuch.xlsx');
+  }
+
+  // ---------- events ----------
+  $('newTripBtn').addEventListener('click', () => openForm(null));
+  $('cancelBtn').addEventListener('click', closeForm);
+  $('saveBtn').addEventListener('click', saveTrip);
+  $('exportBtn').addEventListener('click', exportXlsx);
+  $('prevMonth').addEventListener('click', () => { viewDate.setMonth(viewDate.getMonth()-1); viewDate = new Date(viewDate); render(); });
+  $('nextMonth').addEventListener('click', () => { viewDate.setMonth(viewDate.getMonth()+1); viewDate = new Date(viewDate); render(); });
+  $('f-kmstart').addEventListener('input', updateKmPreview);
+  $('f-kmende').addEventListener('input', updateKmPreview);
+  $('f-start').addEventListener('input', () => {
+    if($('f-start').value.trim() !== lastGeocodedStart) formStartCoords = null;
+  });
+  $('f-ziel').addEventListener('input', () => {
+    if($('f-ziel').value.trim() !== lastGeocodedZiel) formZielCoords = null;
+  });
+  $('catSeg').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-cat]');
+    if(btn) setCategory(btn.dataset.cat);
+  });
+  document.querySelectorAll('.gps-btn').forEach(btn => {
+    btn.addEventListener('click', () => captureGps(btn.dataset.target, btn));
+  });
+  $('f-start').addEventListener('blur', async () => {
+    const val = $('f-start').value.trim();
+    if(!val || val === lastGeocodedStart) return;
+    lastGeocodedStart = val;
+    formStartCoords = await geocodeField('f-start', gpsStatus);
+  });
+  $('f-ziel').addEventListener('blur', async () => {
+    const val = $('f-ziel').value.trim();
+    if(!val || val === lastGeocodedZiel) return;
+    lastGeocodedZiel = val;
+    formZielCoords = await geocodeField('f-ziel', gpsStatus);
+  });
+  tripListEl.addEventListener('click', (e) => {
+    const editId = e.target.closest('[data-edit]')?.dataset.edit;
+    const delId = e.target.closest('[data-del]')?.dataset.del;
+    if(editId){
+      const trip = trips.find(t => t.id === editId);
+      if(trip) openForm(trip);
+    }
+    if(delId){
+      deleteTrip(delId);
+    }
+  });
+  $('clearAllBtn').addEventListener('click', async () => {
+    if(!confirm('Wirklich ALLE gespeicherten Fahrten unwiderruflich löschen?')) return;
+    trips = [];
+    await persist();
+    render();
+  });
+
+  loadTrips();
+
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch((err) => {
+        console.warn("Service Worker konnte nicht registriert werden:", err);
+      });
+    });
+  }
+})();
+</script>
+</body>
+</html>
