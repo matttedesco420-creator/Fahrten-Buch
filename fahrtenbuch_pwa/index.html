@@ -163,6 +163,7 @@
   .gps-btn:hover{ background:#1B4238; }
   .gps-btn:focus-visible{ outline:2px solid var(--teal); outline-offset:2px; }
   .gps-btn[disabled]{ opacity:.5; cursor:wait; }
+  .fav-btn.active{ background:#3A2A12; border-color:var(--amber); color:var(--amber); }
   .field-row{ display:flex; gap:10px; }
   .field-row .field{ flex:1; }
   .km-diff{ font-size:12.5px; color: var(--text-muted); margin-top:-4px; margin-bottom:12px; }
@@ -265,6 +266,11 @@
       </div>
     </div>
 
+    <div class="field" id="fahrzeugField" style="display:none;">
+      <label>Fahrzeug</label>
+      <div class="segmented" id="fahrzeugSeg"></div>
+    </div>
+
     <div class="field">
       <label for="f-zweck">Zweck / Kunde</label>
       <input type="text" id="f-zweck" placeholder="z. B. Kundentermin Müller GmbH">
@@ -312,6 +318,38 @@
     </div>
   </div>
 
+  <div class="form-panel hidden" id="carsPanel">
+    <div class="form-title">Fahrzeuge verwalten</div>
+    <div class="km-diff" style="margin-top:-4px; margin-bottom:14px;">Bis zu 3 Fahrzeuge, eines davon als Favorit. Der Favorit wird bei „+ Neue Fahrt" automatisch vorausgewählt.</div>
+
+    <div class="field">
+      <label for="car-name-0">Fahrzeug 1</label>
+      <div class="field-with-btn">
+        <input type="text" id="car-name-0" placeholder="z. B. BMW 320d">
+        <button type="button" class="gps-btn fav-btn" data-fav-index="0">☆ Favorit</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="car-name-1">Fahrzeug 2</label>
+      <div class="field-with-btn">
+        <input type="text" id="car-name-1" placeholder="optional">
+        <button type="button" class="gps-btn fav-btn" data-fav-index="1">☆ Favorit</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="car-name-2">Fahrzeug 3</label>
+      <div class="field-with-btn">
+        <input type="text" id="car-name-2" placeholder="optional">
+        <button type="button" class="gps-btn fav-btn" data-fav-index="2">☆ Favorit</button>
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn-cancel" id="carsCancelBtn">Schließen</button>
+      <button class="btn-primary" id="carsSaveBtn">Speichern</button>
+    </div>
+  </div>
+
   <div class="ledger-header">
     <span>Fahrten</span>
     <span id="tripCount">0</span>
@@ -319,13 +357,17 @@
   <div id="tripList"></div>
   <div class="empty-state hidden" id="emptyState">Noch keine Fahrten in diesem Monat.<br>Tippe auf „+ Neue Fahrt", um zu starten.</div>
 
+  <button class="footer-link" id="manageCarsBtn">🚗 Fahrzeuge verwalten</button>
   <button class="footer-link" id="clearAllBtn">Alle Daten löschen</button>
 </div>
 
 <script>
 (function(){
   const STORAGE_KEY = 'fahrtenbuch:trips';
+  const CARS_KEY = 'fahrtenbuch:cars';
   let trips = [];
+  let cars = []; // [{ name, favorit: boolean }, ...] max. 3 Einträge
+  let currentFahrzeug = null; // im Formular aktuell gewähltes Fahrzeug (Name) oder null
   let viewDate = new Date(); // month currently displayed
   let editingId = null;
   let currentCategory = 'dienstlich';
@@ -347,8 +389,38 @@
   const formTitle = $('formTitle');
   const gpsStatus = $('gpsStatus');
   const routeStatus = $('routeStatus');
+  const carsPanel = $('carsPanel');
 
   const MONTH_NAMES = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+
+  // ---------- Fahrzeuge: Laden/Speichern ----------
+  function loadCars(){
+    try{
+      const raw = localStorage.getItem(CARS_KEY);
+      cars = raw ? JSON.parse(raw) : [];
+    }catch(e){
+      cars = [];
+    }
+  }
+
+  function persistCars(){
+    try{
+      localStorage.setItem(CARS_KEY, JSON.stringify(cars));
+    }catch(e){
+      alert('Fahrzeuge konnten nicht gespeichert werden.');
+    }
+  }
+
+  function configuredCars(){
+    return cars.filter(c => c.name && c.name.trim());
+  }
+
+  function favoriteCarName(){
+    const list = configuredCars();
+    if(list.length === 0) return null;
+    const fav = list.find(c => c.favorit);
+    return (fav || list[0]).name;
+  }
 
   // ---------- persistence ----------
   // Nutzt das normale Browser-localStorage: bleibt dauerhaft auf DIESEM
@@ -439,12 +511,13 @@
     row.className = 'trip-row';
     const dotClass = t.kategorie === 'privat' ? 'dot-teal' : 'dot-amber';
     const geschaetztTag = t.geschaetzt ? ' · geschätzt' : '';
+    const fahrzeugTag = t.fahrzeug ? ` · 🚗 ${escapeHtml(t.fahrzeug)}` : '';
     row.innerHTML = `
       <div class="trip-main">
         <div class="trip-route">${escapeHtml(t.start)} → ${escapeHtml(t.ziel)}</div>
         <div class="trip-meta">
           <span class="dot ${dotClass}"></span>
-          ${fmtDateShort(t.datum)} · ${escapeHtml(t.zweck || (t.kategorie === 'privat' ? 'Privat' : 'Dienstlich'))}${geschaetztTag}
+          ${fmtDateShort(t.datum)} · ${escapeHtml(t.zweck || (t.kategorie === 'privat' ? 'Privat' : 'Dienstlich'))}${geschaetztTag}${fahrzeugTag}
         </div>
       </div>
       <div class="trip-km">
@@ -467,6 +540,7 @@
 
   // ---------- form ----------
   function openForm(trip){
+    closeCarsPanel();
     editingId = trip ? trip.id : null;
     formTitle.textContent = trip ? 'Fahrt bearbeiten' : 'Neue Fahrt';
     $('f-datum').value = trip ? trip.datum : new Date().toISOString().slice(0,10);
@@ -477,6 +551,7 @@
     $('f-kmende').value = (trip && trip.kmEnde !== null && trip.kmEnde !== undefined) ? trip.kmEnde : '';
     $('f-notiz').value = trip ? (trip.notiz || '') : '';
     setCategory(trip ? trip.kategorie : 'dienstlich');
+    renderFahrzeugField(trip ? trip.fahrzeug : null);
 
     formStartCoords = (trip && typeof trip.startLat === 'number') ? { lat: trip.startLat, lon: trip.startLon } : null;
     formZielCoords = (trip && typeof trip.zielLat === 'number') ? { lat: trip.zielLat, lon: trip.zielLon } : null;
@@ -508,6 +583,88 @@
     document.querySelectorAll('#catSeg button').forEach(b => {
       b.classList.toggle('active', b.dataset.cat === cat);
     });
+  }
+
+  // ---------- Fahrzeugauswahl im Fahrtenformular ----------
+  function renderFahrzeugField(preferredName){
+    const field = $('fahrzeugField');
+    const seg = $('fahrzeugSeg');
+    const list = configuredCars();
+    seg.innerHTML = '';
+
+    if(list.length === 0){
+      field.style.display = 'none';
+      currentFahrzeug = null;
+      return;
+    }
+
+    field.style.display = '';
+    const validPreferred = preferredName && list.some(c => c.name === preferredName);
+    currentFahrzeug = validPreferred ? preferredName : favoriteCarName();
+
+    list.forEach(c => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = c.name;
+      if(c.name === currentFahrzeug) btn.classList.add('active');
+      btn.addEventListener('click', () => {
+        currentFahrzeug = c.name;
+        seg.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+      seg.appendChild(btn);
+    });
+  }
+
+  // ---------- Fahrzeugverwaltung (Panel) ----------
+  function openCarsPanel(){
+    closeForm();
+    for(let i = 0; i < 3; i++){
+      $('car-name-' + i).value = (cars[i] && cars[i].name) || '';
+    }
+    updateFavButtons();
+    carsPanel.classList.remove('hidden');
+    carsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function closeCarsPanel(){
+    carsPanel.classList.add('hidden');
+  }
+
+  function updateFavButtons(){
+    document.querySelectorAll('.fav-btn').forEach(btn => {
+      const idx = Number(btn.dataset.favIndex);
+      const isFav = !!(cars[idx] && cars[idx].favorit);
+      btn.classList.toggle('active', isFav);
+      btn.textContent = isFav ? '★ Favorit' : '☆ Favorit';
+    });
+  }
+
+  function toggleFavorite(index){
+    // vorher provisorisch aus den aktuellen Eingabefeldern lesen, damit ein
+    // Favorit-Klick nicht unbeabsichtigt gerade getippten Text verwirft
+    const draft = [0,1,2].map(i => ({ name: $('car-name-' + i).value.trim() }));
+    draft.forEach((c, i) => { c.favorit = (i === index); });
+    cars = draft;
+    updateFavButtons();
+  }
+
+  function saveCars(){
+    const updated = [0,1,2].map((i) => ({
+      name: $('car-name-' + i).value.trim(),
+      favorit: cars[i] ? !!cars[i].favorit : false,
+    }));
+
+    const nonEmpty = updated.filter(c => c.name);
+    if(nonEmpty.length > 0 && !nonEmpty.some(c => c.favorit)){
+      // kein Favorit gewählt -> automatisch das erste konfigurierte Fahrzeug nehmen
+      const firstIdx = updated.findIndex(c => c.name);
+      updated[firstIdx].favorit = true;
+    }
+
+    cars = updated;
+    persistCars();
+    closeCarsPanel();
   }
 
   function updateKmPreview(){
@@ -628,7 +785,8 @@
       zielLon: formZielCoords ? formZielCoords.lon : null,
       zweck: $('f-zweck').value.trim(),
       notiz: $('f-notiz').value.trim(),
-      kategorie: currentCategory
+      kategorie: currentCategory,
+      fahrzeug: currentFahrzeug
     };
 
     if(editingId){
@@ -884,6 +1042,14 @@
     render();
   });
 
+  $('manageCarsBtn').addEventListener('click', openCarsPanel);
+  $('carsCancelBtn').addEventListener('click', closeCarsPanel);
+  $('carsSaveBtn').addEventListener('click', saveCars);
+  document.querySelectorAll('.fav-btn').forEach(btn => {
+    btn.addEventListener('click', () => toggleFavorite(Number(btn.dataset.favIndex)));
+  });
+
+  loadCars();
   loadTrips();
 
   if ("serviceWorker" in navigator) {
