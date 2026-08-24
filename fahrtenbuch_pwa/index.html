@@ -346,11 +346,15 @@
   const MONTH_NAMES = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
 
   // ---------- persistence ----------
+  // Nutzt das normale Browser-localStorage: bleibt dauerhaft auf DIESEM
+  // Gerät/Browser gespeichert (unabhängig von Claude.ai), aber wird nicht
+  // automatisch zwischen Geräten synchronisiert.
   async function loadTrips(){
     try{
-      const result = await window.storage.get(STORAGE_KEY, false);
-      trips = result && result.value ? JSON.parse(result.value) : [];
+      const raw = localStorage.getItem(STORAGE_KEY);
+      trips = raw ? JSON.parse(raw) : [];
     }catch(e){
+      console.error('Laden fehlgeschlagen', e);
       trips = [];
     }
     render();
@@ -358,10 +362,10 @@
 
   async function persist(){
     try{
-      await window.storage.set(STORAGE_KEY, JSON.stringify(trips), false);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(trips));
     }catch(e){
       console.error('Speichern fehlgeschlagen', e);
-      alert('Speichern ist fehlgeschlagen. Bitte versuch es erneut.');
+      alert('Speichern ist fehlgeschlagen. Möglicherweise ist der Speicherplatz im Browser voll oder eingeschränkt (z. B. im privaten Modus).');
     }
   }
 
