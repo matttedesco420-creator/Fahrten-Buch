@@ -128,6 +128,7 @@
     border:1px solid var(--border);
     border-radius: var(--radius);
     padding: 16px; margin-bottom: 18px;
+    overflow:hidden;
   }
   .form-panel.hidden{ display:none; }
   .form-title{ font-size:15px; font-weight:700; margin-bottom:14px; }
@@ -136,9 +137,16 @@
   .field input, .field select, .field textarea{
     width:100%; background:#0F1319; border:1px solid var(--border); color: var(--text);
     padding: 10px 12px; border-radius:8px; font-size:15px; font-family:inherit;
+    box-sizing:border-box; min-width:0;
   }
   .field input:focus, .field select:focus, .field textarea:focus{
     outline:2px solid var(--amber); outline-offset:1px; border-color: var(--amber-dim);
+  }
+  /* iOS Safari hält sich bei type="date" sonst nicht an die Container-Breite */
+  .field input[type="date"]{
+    -webkit-appearance:none;
+    appearance:none;
+    display:block;
   }
   .field-with-btn{ display:flex; gap:8px; }
   .field-with-btn input{ flex:1; }
@@ -320,6 +328,7 @@
   let formZielCoords = null;
   let lastGeocodedStart = null; // zuletzt geprüfter Adresstext, um doppelte Anfragen zu vermeiden
   let lastGeocodedZiel = null;
+  let kmPreviewPoll = null;
 
   const $ = (id) => document.getElementById(id);
   const monthLabel = $('monthLabel');
@@ -472,11 +481,17 @@
     updateKmPreview();
     formPanel.classList.remove('hidden');
     formPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    // Absicherung: falls AutoFill o. ä. keine Events auslöst, regelmäßig
+    // die Vorschau neu berechnen, solange das Formular offen ist.
+    clearInterval(kmPreviewPoll);
+    kmPreviewPoll = setInterval(updateKmPreview, 500);
   }
 
   function closeForm(){
     formPanel.classList.add('hidden');
     editingId = null;
+    clearInterval(kmPreviewPoll);
   }
 
   function setCategory(cat){
@@ -811,6 +826,12 @@
   $('nextMonth').addEventListener('click', () => { viewDate.setMonth(viewDate.getMonth()+1); viewDate = new Date(viewDate); render(); });
   $('f-kmstart').addEventListener('input', updateKmPreview);
   $('f-kmende').addEventListener('input', updateKmPreview);
+  // AutoFill (z. B. iOS Safari) löst manchmal kein 'input'-Event aus,
+  // daher zusätzlich auf 'change' und 'blur' reagieren:
+  $('f-kmstart').addEventListener('change', updateKmPreview);
+  $('f-kmende').addEventListener('change', updateKmPreview);
+  $('f-kmstart').addEventListener('blur', updateKmPreview);
+  $('f-kmende').addEventListener('blur', updateKmPreview);
   $('f-start').addEventListener('input', () => {
     if($('f-start').value.trim() !== lastGeocodedStart) formStartCoords = null;
   });
