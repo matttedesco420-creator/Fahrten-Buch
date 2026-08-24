@@ -142,11 +142,16 @@
   .field input:focus, .field select:focus, .field textarea:focus{
     outline:2px solid var(--amber); outline-offset:1px; border-color: var(--amber-dim);
   }
-  /* iOS Safari hält sich bei type="date" sonst nicht an die Container-Breite */
+  /* iOS Safari ignoriert bei type="date" oft width:100% komplett (bekannter
+     WebKit-Bug). Der width:1px + min-width:100%-Kniff zwingt Safari dazu,
+     sich trotzdem an die Elternbreite zu halten. */
   .field input[type="date"]{
     -webkit-appearance:none;
     appearance:none;
     display:block;
+    width:1px;
+    min-width:100%;
+    max-width:100%;
   }
   .field-with-btn{ display:flex; gap:8px; }
   .field-with-btn input{ flex:1; }
