@@ -1136,7 +1136,7 @@
     ];
     const sorted = abgeschlossen.slice().sort((a,b) => a.datum.localeCompare(b.datum) || (a.tagesNummer||0) - (b.tagesNummer||0));
     const rows = sorted.map(t => [
-      new Date(t.datum + 'T00:00:00'),
+      null, // Datum wird unten direkt zeitzonensicher als Zelle gesetzt
       t.tagesNummer || 1,
       t.zweck || (t.kategorie === 'privat' ? 'Privat' : 'Dienstlich'),
       t.notiz || '',
@@ -1151,9 +1151,17 @@
 
     // ---- Arbeitsblatt "Fahrtenbuch" (alle Einzelfahrten) ----
     const wsTrips = XLSX.utils.aoa_to_sheet([header, ...rows]);
+
+    // Datum zeitzonensicher setzen: SheetJS rechnet JS-Date-Objekte intern
+    // über UTC um, wodurch das Datum je nach Zeitzone (z. B. Schweiz/Deutschland)
+    // um einen Tag verrutschen kann. Daher wird die Excel-Seriennummer hier
+    // direkt aus Jahr/Monat/Tag berechnet, ganz ohne JS-Date-Umweg.
+    const EXCEL_EPOCH_UTC = Date.UTC(1899, 11, 30);
     for(let r = 0; r < rows.length; r++){
+      const [y, m, d] = sorted[r].datum.split('-').map(Number);
+      const serial = Math.round((Date.UTC(y, m - 1, d) - EXCEL_EPOCH_UTC) / 86400000);
       const cellRef = XLSX.utils.encode_cell({ r: r + 1, c: 0 });
-      if(wsTrips[cellRef]) { wsTrips[cellRef].t = 'd'; wsTrips[cellRef].z = 'DD.MM.YYYY'; }
+      wsTrips[cellRef] = { t: 'n', v: serial, z: 'DD.MM.YYYY' };
     }
     wsTrips['!cols'] = [
       { wch: 12 }, { wch: 14 }, { wch: 26 }, { wch: 26 }, { wch: 22 }, { wch: 22 },
