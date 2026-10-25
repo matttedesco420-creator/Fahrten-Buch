@@ -1,10 +1,18 @@
-const CACHE_NAME = "fahrtenbuch-cache-v2";
+const CACHE_NAME = "fahrtenbuch-cache-v4";
 const ASSETS = [
   "./",
   "./index.html",
   "./manifest.json",
   "./icon-192.png",
   "./icon-512.png",
+  "./vendor/xlsx.full.min.js",
+  "./vendor/leaflet.min.js",
+  "./vendor/leaflet.min.css",
+  "./vendor/images/marker-icon.png",
+  "./vendor/images/marker-icon-2x.png",
+  "./vendor/images/marker-shadow.png",
+  "./vendor/images/layers.png",
+  "./vendor/images/layers-2x.png",
 ];
 
 self.addEventListener("install", (event) => {

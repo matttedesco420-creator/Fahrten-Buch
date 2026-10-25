@@ -16,11 +16,16 @@ Der einfachste kostenlose Weg, da du schon ein GitHub-Konto hast:
 
 ### So richtest du GitHub Pages ein (einmalig, ca. 5 Minuten)
 
-1. Lege die vier Dateien aus diesem Ordner (`index.html`, `manifest.json`,
-   `sw.js`, `icon-192.png`, `icon-512.png`) in dein bestehendes
+1. Lege den Inhalt dieses Ordners (`index.html`, `manifest.json`,
+   `sw.js`, `icon-192.png`, `icon-512.png` **und den ganzen Unterordner
+   `vendor/` mit allen Dateien darin**) in dein bestehendes
    GitHub-Repository `Fahrten-Buch` -- entweder per GitHub Desktop
-   (Dateien in den lokalen Repo-Ordner kopieren, dann "Commit" + "Push")
-   oder direkt auf github.com über "Add file" -> "Upload files".
+   (Dateien/Ordner in den lokalen Repo-Ordner kopieren, dann "Commit" + "Push")
+   oder direkt auf github.com über "Add file" -> "Upload files" (Ordner
+   lassen sich dort per Drag & Drop mit hochladen). Der `vendor/`-Ordner
+   enthält die Excel- und Kartenbibliothek fest im Repo statt sie bei
+   jedem Öffnen von einem fremden Server zu laden -- wichtig, dass er
+   komplett mit hochkommt, sonst fehlen Excel-Export und Karte.
 
 2. Geh auf github.com zu deinem Repository -> **Settings** -> **Pages**
    (linkes Menü).

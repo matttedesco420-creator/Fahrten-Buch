@@ -11,7 +11,13 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Fahrtenbuch">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- Excel-Export (SheetJS) und Karten-Anzeige (Leaflet) liegen fest im Repo
+     ("vendor/"), statt bei jedem Öffnen live von einem fremden CDN geladen
+     zu werden. Updates daran gibt es dadurch nur, wenn diese Dateien bewusst
+     ersetzt und hochgeladen werden -- nicht automatisch im Hintergrund. -->
+<script src="vendor/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="vendor/leaflet.min.css">
+<script src="vendor/leaflet.min.js"></script>
 <style>
   :root{
     --bg: #12151A;
@@ -193,8 +199,80 @@
   .segmented button{
     flex:1; padding:9px; background:#0F1319; color: var(--text-muted); border:none; font-size:14px; font-weight:600; cursor:pointer;
   }
+  /* Generelle Markierung für aktive Segmente (z. B. Fahrzeugliste), die
+     Kategorie-Buttons bekommen unten zusätzlich ihre eigene Farbe. */
+  .segmented button.active{ background: var(--amber-dim); color:#171200; }
   .segmented button.active[data-cat="dienstlich"]{ background: var(--amber); color:#171200; }
   .segmented button.active[data-cat="privat"]{ background: var(--teal); color:#0A1A16; }
+
+  /* ---------- Fahrzeugauswahl: eine Zeile + Klapp-Panel ---------- */
+  .fahrzeug-row{ display:flex; gap:8px; }
+  .fahrzeug-display{
+    flex:1; text-align:left; background:#0F1319; border:1px solid var(--border); color: var(--text);
+    padding: 10px 12px; border-radius:8px; font-size:15px; font-family:inherit; cursor:pointer;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .fahrzeug-display:focus-visible{ outline:2px solid var(--amber); outline-offset:1px; }
+  .fahrzeug-display.placeholder{ color: var(--text-muted); }
+  .fahrzeug-chevron{
+    background:#0F1319; border:1px solid var(--border); color: var(--text-muted);
+    width:42px; border-radius:8px; cursor:pointer; font-size:14px; flex-shrink:0;
+    transition: transform .15s ease;
+  }
+  .fahrzeug-chevron.open{ transform: rotate(180deg); color: var(--amber); border-color: var(--amber-dim); }
+  .fahrzeug-dropdown{
+    margin-top:8px; border:1px solid var(--border); border-radius:8px; overflow:hidden;
+  }
+  .fahrzeug-dropdown.hidden{ display:none; }
+  .fahrzeug-dropdown button{
+    display:block; width:100%; text-align:left; padding:10px 12px; background:#0F1319; color: var(--text);
+    border:none; border-bottom:1px solid var(--border); font-size:14px; cursor:pointer; font-family:inherit;
+  }
+  .fahrzeug-dropdown button:last-child{ border-bottom:none; }
+  .fahrzeug-dropdown button:hover{ background: var(--panel-alt); }
+  .fahrzeug-dropdown button.active{ background: var(--amber); color:#171200; font-weight:700; }
+
+  /* ---------- Adress-Favoriten & Karten-Link unterhalb eines Ortsfelds ---------- */
+  .addr-actions{ display:flex; gap:14px; margin-top:6px; }
+  .addr-link{
+    background:none; border:none; color: var(--teal); font-size:12.5px; font-weight:600;
+    cursor:pointer; padding:0; text-decoration:underline; font-family:inherit;
+  }
+  .addr-fav-chips{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .addr-fav-chips.hidden{ display:none; }
+  .addr-chip{
+    display:flex; align-items:center; gap:6px;
+    background:#16342C; border:1px solid var(--teal); color: var(--teal);
+    border-radius:16px; padding:5px 6px 5px 12px; font-size:12.5px; font-weight:600; cursor:pointer;
+  }
+  .addr-chip-del{
+    background:none; border:none; color: var(--teal); opacity:.7; cursor:pointer; font-size:12px;
+    width:18px; height:18px; display:flex; align-items:center; justify-content:center; border-radius:50%;
+  }
+  .addr-chip-del:hover{ opacity:1; background: rgba(255,255,255,0.1); }
+  .addr-chip-add{
+    background: var(--panel-alt); border:1px dashed var(--border); color: var(--text-muted);
+    border-radius:16px; padding:5px 12px; font-size:12.5px; font-weight:600; cursor:pointer; font-family:inherit;
+  }
+  .addr-chip-add:hover{ border-color: var(--amber-dim); color: var(--text); }
+
+  /* ---------- Karten-Modal (manuelle Standortwahl) ---------- */
+  .map-modal{
+    position:fixed; inset:0; background: rgba(5,6,10,0.85); z-index:1000;
+    display:flex; align-items:flex-end; justify-content:center;
+  }
+  .map-modal.hidden{ display:none; }
+  .map-modal-inner{
+    background: var(--panel); border:1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0;
+    width:100%; max-width:560px; max-height:88vh; display:flex; flex-direction:column; overflow:hidden;
+  }
+  .map-modal-header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 16px; border-bottom:1px solid var(--border); font-weight:700; font-size:14.5px;
+  }
+  #mapContainer{ width:100%; height:48vh; background:#0B0D11; }
+  .map-modal-footer{ padding:12px 16px 16px; }
+  .map-modal-footer .btn-primary{ width:100%; margin-top:8px; }
 
   .form-actions{ display:flex; gap:10px; margin-top:4px; }
   .form-actions .btn-primary{ flex:1; }
@@ -281,7 +359,10 @@
 
   <div class="quickactions">
     <button class="btn-primary" id="newTripBtn">▶ Fahrt starten</button>
-    <button class="btn-ghost" id="exportBtn">Export (Excel)</button>
+    <button class="btn-primary" id="newTripCreateBtn">+ Fahrt erstellen</button>
+  </div>
+  <div class="quickactions">
+    <button class="btn-ghost" id="exportBtn" style="flex:1;">Export (Excel)</button>
   </div>
 
   <div class="form-panel hidden" id="formPanel">
@@ -309,7 +390,11 @@
 
     <div class="field" id="fahrzeugField" style="display:none;">
       <label>Fahrzeug</label>
-      <div class="segmented" id="fahrzeugSeg"></div>
+      <div class="fahrzeug-row">
+        <button type="button" class="fahrzeug-display placeholder" id="fahrzeugDisplay">– Fahrzeug wählen –</button>
+        <button type="button" class="fahrzeug-chevron" id="fahrzeugChevron" aria-label="Fahrzeug auswählen">▾</button>
+      </div>
+      <div class="fahrzeug-dropdown hidden" id="fahrzeugDropdown"></div>
     </div>
 
     <div class="field">
@@ -323,6 +408,11 @@
         <input type="text" id="f-start" placeholder="z. B. Büro Köln">
         <button type="button" class="gps-btn" data-target="f-start">📍 GPS</button>
       </div>
+      <div class="addr-actions">
+        <button type="button" class="addr-link" data-map="f-start">🗺️ Auf Karte markieren</button>
+        <button type="button" class="addr-link" data-favopen="f-start">⭐ Favoriten</button>
+      </div>
+      <div class="addr-fav-chips hidden" id="favChips-f-start"></div>
     </div>
     <div class="gps-status" id="gpsStatus"></div>
 
@@ -338,6 +428,11 @@
           <input type="text" id="f-ziel" placeholder="z. B. Musterstraße 1, Bonn">
           <button type="button" class="gps-btn" data-target="f-ziel">📍 GPS</button>
         </div>
+        <div class="addr-actions">
+          <button type="button" class="addr-link" data-map="f-ziel">🗺️ Auf Karte markieren</button>
+          <button type="button" class="addr-link" data-favopen="f-ziel">⭐ Favoriten</button>
+        </div>
+        <div class="addr-fav-chips hidden" id="favChips-f-ziel"></div>
       </div>
 
       <div class="field">
@@ -392,6 +487,20 @@
     </div>
   </div>
 
+  <div class="map-modal hidden" id="mapModal">
+    <div class="map-modal-inner">
+      <div class="map-modal-header">
+        <span id="mapModalTitle">Standort auf Karte wählen</span>
+        <button type="button" class="icon-btn" id="mapModalClose" aria-label="Schließen">✕</button>
+      </div>
+      <div id="mapContainer"></div>
+      <div class="map-modal-footer">
+        <div class="gps-status" id="mapModalStatus">Tippe auf die Karte, um den Standort zu setzen.</div>
+        <button type="button" class="btn-primary" id="mapModalConfirm">Standort übernehmen</button>
+      </div>
+    </div>
+  </div>
+
   <div class="ledger-header">
     <span>Fahrten</span>
     <span id="tripCount">0</span>
@@ -407,8 +516,10 @@
 (function(){
   const STORAGE_KEY = 'fahrtenbuch:trips';
   const CARS_KEY = 'fahrtenbuch:cars';
+  const ADDR_FAV_KEY = 'fahrtenbuch:addressFavorites';
   let trips = [];
   let cars = []; // [{ name, favorit: boolean }, ...] max. 3 Einträge
+  let addressFavorites = []; // [{ id, label, address, lat, lon }, ...]
   let currentFahrzeug = null; // im Formular aktuell gewähltes Fahrzeug (Name) oder null
   let viewDate = new Date(); // month currently displayed
   let editingId = null;
@@ -418,6 +529,10 @@
   let lastGeocodedStart = null; // zuletzt geprüfter Adresstext, um doppelte Anfragen zu vermeiden
   let lastGeocodedZiel = null;
   let kmPreviewPoll = null;
+  let mapInstance = null; // Leaflet-Karte (einmalig initialisiert)
+  let mapMarker = null;
+  let mapTargetField = null; // 'f-start' | 'f-ziel' -- welches Feld die Kartenwahl füllt
+  let mapPendingCoords = null;
 
   const $ = (id) => document.getElementById(id);
   const monthLabel = $('monthLabel');
@@ -462,6 +577,24 @@
     if(list.length === 0) return null;
     const fav = list.find(c => c.favorit);
     return (fav || list[0]).name;
+  }
+
+  // ---------- Adress-Favoriten: Laden/Speichern ----------
+  function loadAddressFavorites(){
+    try{
+      const raw = localStorage.getItem(ADDR_FAV_KEY);
+      addressFavorites = raw ? JSON.parse(raw) : [];
+    }catch(e){
+      addressFavorites = [];
+    }
+  }
+
+  function persistAddressFavorites(){
+    try{
+      localStorage.setItem(ADDR_FAV_KEY, JSON.stringify(addressFavorites));
+    }catch(e){
+      alert('Favorit konnte nicht gespeichert werden.');
+    }
   }
 
   // ---------- persistence ----------
@@ -661,13 +794,13 @@
   // abschließen) oder 'edit' (bereits abgeschlossene Fahrt bearbeiten)
   let currentFormMode = 'start';
 
-  function openForm(trip){
+  function openForm(trip, forceCreate){
     closeCarsPanel();
-    const mode = !trip ? 'start' : (trip.status === 'aktiv' ? 'complete' : 'edit');
+    const mode = forceCreate ? 'create' : (!trip ? 'start' : (trip.status === 'aktiv' ? 'complete' : 'edit'));
     currentFormMode = mode;
     editingId = trip ? trip.id : null;
 
-    const titles = { start: 'Fahrt starten', complete: 'Fahrt abschließen', edit: 'Fahrt bearbeiten' };
+    const titles = { start: 'Fahrt starten', complete: 'Fahrt abschließen', edit: 'Fahrt bearbeiten', create: 'Fahrt erstellen' };
     formTitle.textContent = titles[mode];
     $('saveBtn').textContent = titles[mode];
 
@@ -687,13 +820,16 @@
     lastGeocodedStart = trip ? trip.start : null;
     lastGeocodedZiel = (trip && trip.ziel) ? trip.ziel : null;
 
-    // Zielort/km-Ende nur zeigen, wenn eine Fahrt abgeschlossen oder bearbeitet wird
+    // Zielort/km-Ende nur zeigen, wenn eine Fahrt abgeschlossen, bearbeitet
+    // oder direkt komplett neu erstellt wird (nicht im reinen "Start"-Modus)
     $('zielFieldGroup').style.display = (mode === 'start') ? 'none' : '';
 
     gpsStatus.textContent = '';
     gpsStatus.classList.remove('error');
     routeStatus.textContent = '';
     routeStatus.classList.remove('error');
+    closeFahrzeugDropdown();
+    hideAllFavChips();
     updateKmPreview();
     formPanel.classList.remove('hidden');
     formPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -718,11 +854,14 @@
   }
 
   // ---------- Fahrzeugauswahl im Fahrtenformular ----------
+  // Eine Zeile zeigt das aktuell gewählte Fahrzeug, ein Pfeil-Button klappt
+  // darunter die Liste der konfigurierten Fahrzeuge zur Auswahl auf.
   function renderFahrzeugField(preferredName){
     const field = $('fahrzeugField');
-    const seg = $('fahrzeugSeg');
+    const display = $('fahrzeugDisplay');
+    const dropdown = $('fahrzeugDropdown');
     const list = configuredCars();
-    seg.innerHTML = '';
+    dropdown.innerHTML = '';
 
     if(list.length === 0){
       field.style.display = 'none';
@@ -733,6 +872,7 @@
     field.style.display = '';
     const validPreferred = preferredName && list.some(c => c.name === preferredName);
     currentFahrzeug = validPreferred ? preferredName : favoriteCarName();
+    updateFahrzeugDisplay();
 
     list.forEach(c => {
       const btn = document.createElement('button');
@@ -741,11 +881,37 @@
       if(c.name === currentFahrzeug) btn.classList.add('active');
       btn.addEventListener('click', () => {
         currentFahrzeug = c.name;
-        seg.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        dropdown.querySelectorAll('button').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
+        updateFahrzeugDisplay();
+        closeFahrzeugDropdown();
       });
-      seg.appendChild(btn);
+      dropdown.appendChild(btn);
     });
+  }
+
+  function updateFahrzeugDisplay(){
+    const display = $('fahrzeugDisplay');
+    if(currentFahrzeug){
+      display.textContent = '🚗 ' + currentFahrzeug;
+      display.classList.remove('placeholder');
+    } else {
+      display.textContent = '– Fahrzeug wählen –';
+      display.classList.add('placeholder');
+    }
+  }
+
+  function toggleFahrzeugDropdown(){
+    const dropdown = $('fahrzeugDropdown');
+    const chevron = $('fahrzeugChevron');
+    const willOpen = dropdown.classList.contains('hidden');
+    dropdown.classList.toggle('hidden', !willOpen);
+    chevron.classList.toggle('open', willOpen);
+  }
+
+  function closeFahrzeugDropdown(){
+    $('fahrzeugDropdown').classList.add('hidden');
+    $('fahrzeugChevron').classList.remove('open');
   }
 
   // ---------- Fahrzeugverwaltung (Panel) ----------
@@ -1050,6 +1216,51 @@
     return best;
   }
 
+  // ---------- Koordinaten -> lesbare Adresse (für GPS-Button UND Karten-Auswahl) ----------
+  async function reverseGeocodeAddress(lat, lon){
+    const result = { formatted: null, housenumberFound: true, statusText: '' };
+    try{
+      const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`);
+      if(!resp.ok) throw new Error('Reverse-Geocoding fehlgeschlagen');
+      const data = await resp.json();
+      const addr = data.address || {};
+
+      let street = addr.road;
+      let housenumber = addr.house_number;
+      let hausnummerPerUmkreissuche = false;
+
+      if(!housenumber){
+        try{
+          const nearest = await findNearestHousenumber(lat, lon, 100);
+          if(nearest && nearest.housenumber){
+            housenumber = nearest.housenumber;
+            if(!street) street = nearest.street;
+            hausnummerPerUmkreissuche = true;
+          }
+        }catch(e){ /* Umkreissuche fehlgeschlagen -- einfach ohne Hausnummer weitermachen */ }
+      }
+
+      const strasseHausnr = [street, housenumber].filter(Boolean).join(' ');
+      const ortsteil = [addr.postcode, addr.city || addr.town || addr.village || addr.municipality]
+        .filter(Boolean).join(' ');
+      const formatted = [strasseHausnr, ortsteil].filter(Boolean).join(', ');
+      result.formatted = formatted || data.display_name || null;
+      result.housenumberFound = !!housenumber;
+      result.statusText = !housenumber
+        ? 'Standort übernommen (keine Hausnummer in der Nähe gefunden – bitte manuell ergänzen).'
+        : (hausnummerPerUmkreissuche
+          ? 'Standort übernommen (Hausnummer aus nahegelegenem Gebäude ergänzt).'
+          : 'Standort übernommen.');
+    }catch(e){
+      result.formatted = null;
+      result.statusText = 'Adresse konnte nicht aufgelöst werden – Koordinaten übernommen.';
+    }
+    if(!result.formatted){
+      result.formatted = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+    }
+    return result;
+  }
+
   function captureGps(targetInputId, btn){
     if(!navigator.geolocation){
       gpsStatus.textContent = 'GPS wird von diesem Browser nicht unterstützt.';
@@ -1071,54 +1282,194 @@
         lastGeocodedZiel = null;
       }
 
-      try{
-        const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`);
-        if(!resp.ok) throw new Error('Reverse-Geocoding fehlgeschlagen');
-        const data = await resp.json();
-        const addr = data.address || {};
+      gpsStatus.textContent = 'Standort übernommen, Adresse wird ermittelt …';
+      const geo = await reverseGeocodeAddress(latitude, longitude);
+      $(targetInputId).value = geo.formatted;
+      if(targetInputId === 'f-start') lastGeocodedStart = geo.formatted; else lastGeocodedZiel = geo.formatted;
 
-        let street = addr.road;
-        let housenumber = addr.house_number;
-        let hausnummerPerUmkreissuche = false;
-
-        if(!housenumber){
-          gpsStatus.textContent = 'Standort übernommen, suche Hausnummer in der Nähe …';
-          try{
-            const nearest = await findNearestHousenumber(latitude, longitude, 100);
-            if(nearest && nearest.housenumber){
-              housenumber = nearest.housenumber;
-              if(!street) street = nearest.street;
-              hausnummerPerUmkreissuche = true;
-            }
-          }catch(e){ /* Umkreissuche fehlgeschlagen -- einfach ohne Hausnummer weitermachen */ }
-        }
-
-        const strasseHausnr = [street, housenumber].filter(Boolean).join(' ');
-        const ortsteil = [addr.postcode, addr.city || addr.town || addr.village || addr.municipality]
-          .filter(Boolean).join(' ');
-        const formatted = [strasseHausnr, ortsteil].filter(Boolean).join(', ');
-        $(targetInputId).value = formatted || data.display_name || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-
-        const ungenau = accuracy && accuracy > 100;
-        if(ungenau){
-          gpsStatus.textContent = `Standort übernommen (Genauigkeit nur ±${Math.round(accuracy)}m – Adresse ggf. prüfen).`;
-        } else if(!housenumber){
-          gpsStatus.textContent = 'Standort übernommen (keine Hausnummer in der Nähe gefunden – bitte manuell ergänzen).';
-        } else if(hausnummerPerUmkreissuche){
-          gpsStatus.textContent = 'Standort übernommen (Hausnummer aus nahegelegenem Gebäude ergänzt).';
-        } else {
-          gpsStatus.textContent = 'Standort übernommen.';
-        }
-      }catch(e){
-        $(targetInputId).value = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-        gpsStatus.textContent = 'Adresse konnte nicht aufgelöst werden – Koordinaten übernommen.';
-      }
+      const ungenau = accuracy && accuracy > 100;
+      gpsStatus.textContent = ungenau
+        ? `Standort übernommen (Genauigkeit nur ±${Math.round(accuracy)}m – Adresse ggf. prüfen).`
+        : geo.statusText;
       btn.disabled = false;
     }, (err) => {
       gpsStatus.textContent = 'Standort konnte nicht ermittelt werden: ' + err.message;
       gpsStatus.classList.add('error');
       btn.disabled = false;
     }, { enableHighAccuracy: true, timeout: 12000 });
+  }
+
+  // ---------- Karten-Picker: manuelle Standortwahl, falls GPS/Adresse scheitert ----------
+  const MAP_DEFAULT_CENTER = { lat: 48.2082, lon: 16.3738 }; // Fallback-Mittelpunkt: Wien
+
+  function openMapPicker(targetFieldId){
+    mapTargetField = targetFieldId;
+    mapPendingCoords = (targetFieldId === 'f-start') ? formStartCoords : formZielCoords;
+
+    $('mapModalTitle').textContent = (targetFieldId === 'f-start' ? 'Startort' : 'Zielort') + ' auf Karte wählen';
+    $('mapModalStatus').textContent = 'Tippe auf die Karte, um den Standort zu setzen.';
+    $('mapModal').classList.remove('hidden');
+
+    const center = mapPendingCoords || MAP_DEFAULT_CENTER;
+    const zoom = mapPendingCoords ? 15 : 6;
+
+    // Leaflet braucht ein sichtbares Containerelement -- daher erst NACH dem
+    // Einblenden initialisieren bzw. die Größe neu berechnen.
+    setTimeout(() => {
+      if(!mapInstance){
+        mapInstance = L.map('mapContainer').setView([center.lat, center.lon], zoom);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '© OpenStreetMap-Mitwirkende'
+        }).addTo(mapInstance);
+        mapInstance.on('click', (e) => {
+          mapPendingCoords = { lat: e.latlng.lat, lon: e.latlng.lng };
+          placeMapMarker(mapPendingCoords);
+          $('mapModalStatus').textContent = `Gewählt: ${mapPendingCoords.lat.toFixed(5)}, ${mapPendingCoords.lon.toFixed(5)}`;
+        });
+      } else {
+        mapInstance.setView([center.lat, center.lon], zoom);
+      }
+      mapInstance.invalidateSize();
+      if(mapPendingCoords){
+        placeMapMarker(mapPendingCoords);
+      } else if(mapMarker){
+        mapInstance.removeLayer(mapMarker);
+        mapMarker = null;
+      }
+      // Versuche optional den aktuellen GPS-Standort als Startpunkt zu holen,
+      // falls noch keine Koordinaten vorhanden sind (rein für die Kartenmitte,
+      // setzt KEINEN Marker automatisch).
+      if(!mapPendingCoords && navigator.geolocation){
+        navigator.geolocation.getCurrentPosition((pos) => {
+          if(!mapPendingCoords){
+            mapInstance.setView([pos.coords.latitude, pos.coords.longitude], 14);
+          }
+        }, () => {}, { timeout: 4000 });
+      }
+    }, 50);
+  }
+
+  function placeMapMarker(coords){
+    if(mapMarker){
+      mapMarker.setLatLng([coords.lat, coords.lon]);
+    } else {
+      mapMarker = L.marker([coords.lat, coords.lon], { draggable: true }).addTo(mapInstance);
+      mapMarker.on('dragend', () => {
+        const pos = mapMarker.getLatLng();
+        mapPendingCoords = { lat: pos.lat, lon: pos.lng };
+        $('mapModalStatus').textContent = `Gewählt: ${mapPendingCoords.lat.toFixed(5)}, ${mapPendingCoords.lon.toFixed(5)}`;
+      });
+    }
+  }
+
+  function closeMapPicker(){
+    $('mapModal').classList.add('hidden');
+  }
+
+  async function confirmMapPicker(){
+    if(!mapPendingCoords){
+      $('mapModalStatus').textContent = 'Bitte zuerst auf die Karte tippen, um einen Punkt zu setzen.';
+      return;
+    }
+    const targetFieldId = mapTargetField;
+    $('mapModalStatus').textContent = 'Adresse wird ermittelt …';
+    const geo = await reverseGeocodeAddress(mapPendingCoords.lat, mapPendingCoords.lon);
+    $(targetFieldId).value = geo.formatted;
+    if(targetFieldId === 'f-start'){
+      formStartCoords = mapPendingCoords;
+      lastGeocodedStart = geo.formatted;
+    } else {
+      formZielCoords = mapPendingCoords;
+      lastGeocodedZiel = geo.formatted;
+    }
+    updateKmPreview();
+    closeMapPicker();
+  }
+
+  // ---------- Adress-Favoriten: Schnellauswahl unter Start-/Zielfeld ----------
+  function hideAllFavChips(){
+    document.querySelectorAll('.addr-fav-chips').forEach(el => el.classList.add('hidden'));
+  }
+
+  function toggleFavChips(fieldId){
+    const chipsEl = $('favChips-' + fieldId);
+    const willOpen = chipsEl.classList.contains('hidden');
+    hideAllFavChips();
+    if(willOpen){
+      renderFavChips(fieldId);
+      chipsEl.classList.remove('hidden');
+    }
+  }
+
+  function renderFavChips(fieldId){
+    const chipsEl = $('favChips-' + fieldId);
+    chipsEl.innerHTML = '';
+
+    addressFavorites.forEach(fav => {
+      const chip = document.createElement('span');
+      chip.className = 'addr-chip';
+      const label = document.createElement('span');
+      label.textContent = '⭐ ' + fav.label;
+      label.addEventListener('click', () => {
+        $(fieldId).value = fav.address;
+        if(fieldId === 'f-start'){
+          formStartCoords = { lat: fav.lat, lon: fav.lon };
+          lastGeocodedStart = fav.address;
+        } else {
+          formZielCoords = { lat: fav.lat, lon: fav.lon };
+          lastGeocodedZiel = fav.address;
+        }
+        updateKmPreview();
+        hideAllFavChips();
+      });
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'addr-chip-del';
+      del.textContent = '✕';
+      del.setAttribute('aria-label', 'Favorit „' + fav.label + '“ löschen');
+      del.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if(!confirm('Favorit „' + fav.label + '“ wirklich löschen?')) return;
+        addressFavorites = addressFavorites.filter(f => f.id !== fav.id);
+        persistAddressFavorites();
+        renderFavChips(fieldId);
+      });
+      chip.appendChild(label);
+      chip.appendChild(del);
+      chipsEl.appendChild(chip);
+    });
+
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'addr-chip-add';
+    addBtn.textContent = '+ Aktuelle Adresse speichern';
+    addBtn.addEventListener('click', async () => {
+      const currentAddress = $(fieldId).value.trim();
+      if(!currentAddress){
+        alert('Bitte zuerst eine Adresse eintragen (oder per GPS/Karte setzen).');
+        return;
+      }
+      let coords = (fieldId === 'f-start') ? formStartCoords : formZielCoords;
+      if(!coords){
+        coords = await geocodeAddress(currentAddress).catch(() => null);
+      }
+      if(!coords){
+        alert('Die Adresse konnte nicht eindeutig geortet werden und kann daher nicht als Favorit gespeichert werden.');
+        return;
+      }
+      const label = prompt('Name für diesen Favoriten (z. B. „Zuhause“ oder „Büro“):', '');
+      if(!label || !label.trim()) return;
+      addressFavorites.push({
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2,7),
+        label: label.trim(),
+        address: currentAddress,
+        lat: coords.lat, lon: coords.lon
+      });
+      persistAddressFavorites();
+      renderFavChips(fieldId);
+    });
+    chipsEl.appendChild(addBtn);
   }
 
   // ---------- Excel export ----------
@@ -1228,6 +1579,23 @@
     }
     openForm(null);
   });
+  $('newTripCreateBtn').addEventListener('click', () => {
+    if(activeTrip()){
+      alert('Es ist bereits eine Fahrt aktiv. Bitte zuerst abschließen oder verwerfen, bevor eine neue Fahrt erstellt wird.');
+      return;
+    }
+    openForm(null, true);
+  });
+  $('fahrzeugChevron').addEventListener('click', toggleFahrzeugDropdown);
+  $('fahrzeugDisplay').addEventListener('click', toggleFahrzeugDropdown);
+  document.querySelectorAll('[data-map]').forEach(btn => {
+    btn.addEventListener('click', () => openMapPicker(btn.dataset.map));
+  });
+  document.querySelectorAll('[data-favopen]').forEach(btn => {
+    btn.addEventListener('click', () => toggleFavChips(btn.dataset.favopen));
+  });
+  $('mapModalClose').addEventListener('click', closeMapPicker);
+  $('mapModalConfirm').addEventListener('click', confirmMapPicker);
   $('activeTripCompleteBtn').addEventListener('click', () => {
     const active = activeTrip();
     if(active) openForm(active);
@@ -1302,6 +1670,7 @@
   });
 
   loadCars();
+  loadAddressFavorites();
   loadTrips();
 
   if ("serviceWorker" in navigator) {
