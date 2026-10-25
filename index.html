@@ -440,8 +440,14 @@
         <input type="number" id="f-kmende" inputmode="numeric" placeholder="12400">
       </div>
       <div class="km-diff">Effektive Strecke (aus km-Stand): <span class="val" id="kmDiffPreview">–</span> km</div>
-      <div class="km-diff" style="margin-top:-8px;">Theoretische Strecke wird zusätzlich automatisch per GPS-Route aus Start-/Zielort berechnet.</div>
+      <div class="km-diff" style="margin-top:-8px;">Beide km-Stände ausfüllen, nur einen (wird trotzdem gespeichert) oder keinen – die Strecke wird dann wenn möglich automatisch aus Start-/Zielort berechnet.</div>
       <div class="gps-status" id="routeStatus"></div>
+
+      <div class="field" style="margin-top:12px;">
+        <label for="f-kmmanuell">Gefahrene Kilometer – manuell (optional)</label>
+        <input type="number" id="f-kmmanuell" inputmode="numeric" placeholder="z. B. 45">
+      </div>
+      <div class="km-diff" style="margin-top:-8px;">Nur falls weder km-Stand noch Start-/Zielort eine Strecke ergeben (z. B. GPS/Adresse nicht verfügbar) – wird dann als gefahrene Strecke übernommen.</div>
     </div>
 
     <div class="field">
@@ -811,6 +817,12 @@
     $('f-ziel').value = (trip && trip.ziel) ? trip.ziel : '';
     $('f-kmstart').value = (trip && trip.kmStart !== null && trip.kmStart !== undefined) ? trip.kmStart : '';
     $('f-kmende').value = (trip && trip.kmEnde !== null && trip.kmEnde !== undefined) ? trip.kmEnde : '';
+    // Manuell eingegebene km nur wieder anzeigen, wenn die effektive Strecke
+    // seinerzeit NICHT aus km-Ständen berechnet wurde (sonst stünde hier eine
+    // "fremde" Zahl, die beim erneuten Speichern versehentlich übernommen würde)
+    const kmStartLeer = !trip || trip.kmStart === null || trip.kmStart === undefined;
+    const kmEndeLeer = !trip || trip.kmEnde === null || trip.kmEnde === undefined;
+    $('f-kmmanuell').value = (trip && kmStartLeer && kmEndeLeer && typeof trip.distanzEffektiv === 'number') ? trip.distanzEffektiv : '';
     $('f-notiz').value = trip ? (trip.notiz || '') : '';
     setCategory(trip ? trip.kategorie : 'dienstlich');
     renderFahrzeugField(trip ? trip.fahrzeug : null);
@@ -1075,22 +1087,24 @@
       return;
     }
 
+    // km-Stand Start und Ende sind unabhängig voneinander optional -- es darf
+    // auch nur einer von beiden eingetragen werden (wird dann trotzdem
+    // gespeichert, ergibt für sich allein aber keine effektive Strecke).
     const kmEndeRaw = $('f-kmende').value.trim();
     const hasKmStart = kmStart !== null;
     const hasKmEnde = kmEndeRaw !== '';
 
-    if(hasKmStart !== hasKmEnde){
-      alert('Bitte entweder beide Kilometerstände (Start und Ende) ausfüllen oder beide leer lassen.');
-      return;
-    }
-
-    let distanzEffektiv = null;
-    if(hasKmStart && hasKmEnde){
-      const kmEnde = parseFloat(kmEndeRaw);
+    let kmEnde = null;
+    if(hasKmEnde){
+      kmEnde = parseFloat(kmEndeRaw);
       if(isNaN(kmEnde)){
         alert('Bitte einen gültigen km-Stand Ende eingeben.');
         return;
       }
+    }
+
+    let distanzEffektiv = null;
+    if(hasKmStart && hasKmEnde){
       if(kmEnde < kmStart){
         alert('Der End-Kilometerstand darf nicht kleiner als der Start-Kilometerstand sein.');
         return;
@@ -1098,7 +1112,6 @@
       distanzEffektiv = kmEnde - kmStart;
       $('f-kmende').value = kmEnde;
     }
-    const kmEnde = hasKmEnde ? parseFloat(kmEndeRaw) : null;
 
     // Theoretische Strecke wird IMMER versucht zu berechnen (unabhängig von km-Ständen)
     if(!formZielCoords){
@@ -1118,11 +1131,25 @@
       routeStatus.textContent = 'Theoretische Strecke: Start-/Zielort nicht eindeutig erkannt.';
     }
 
+    // Manuelle km-Eingabe als letzter Fallback: nur wenn weder km-Stand-Diff
+    // noch GPS-Route eine Strecke ergeben haben.
+    if(distanzEffektiv === null && distanzTheoretisch === null){
+      const kmManuellRaw = $('f-kmmanuell').value.trim();
+      if(kmManuellRaw !== ''){
+        const kmManuell = parseFloat(kmManuellRaw);
+        if(isNaN(kmManuell) || kmManuell < 0){
+          alert('Bitte eine gültige Zahl bei „Gefahrene Kilometer – manuell" eingeben.');
+          return;
+        }
+        distanzEffektiv = kmManuell;
+      }
+    }
+
     if(distanzEffektiv === null && distanzTheoretisch === null){
       routeStatus.classList.add('error');
-      routeStatus.textContent = 'Weder km-Stand noch GPS-Route konnten eine Strecke ermitteln.';
+      routeStatus.textContent = 'Weder km-Stand noch GPS-Route noch manuelle Eingabe konnten eine Strecke ermitteln.';
       const proceed = confirm(
-        'Es konnte weder eine effektive (km-Stand) noch eine theoretische (GPS-Route) Strecke ermittelt werden.\n\n' +
+        'Es konnte weder eine effektive (km-Stand), eine theoretische (GPS-Route) noch eine manuell eingegebene Strecke ermittelt werden.\n\n' +
         'Trotzdem ohne Kilometerangabe speichern? Die km-Spalten bleiben dann leer und die Zeile wird im Excel-Export rötlich markiert, damit du sie später ergänzen kannst.'
       );
       if(!proceed) return;
